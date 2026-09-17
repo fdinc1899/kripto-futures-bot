@@ -260,21 +260,26 @@ class BinanceFuturesClient(
 
     override suspend fun placeConditionalOrder(
         request: ConditionalOrderRequest,
-    ): ExchangeResult<AlgoOrderInfo> =
-        signedRequest(
-            "POST",
-            "/fapi/v1/algoOrder",
-            listOf(
-                "algoType" to "CONDITIONAL",
-                "symbol" to request.symbol,
-                "side" to request.side,
-                "type" to request.type,
-                "triggerPrice" to request.triggerPrice.toPlainString(),
-                "closePosition" to "true",
-                "workingType" to "MARK_PRICE",
-                "clientAlgoId" to request.clientAlgoId,
-            ),
-        ).mapOk { el -> el.objOrNull()?.let { o -> parseAlgo(o) } }
+    ): ExchangeResult<AlgoOrderInfo> {
+        val params = mutableListOf(
+            "algoType" to "CONDITIONAL",
+            "symbol" to request.symbol,
+            "side" to request.side,
+            "type" to request.type,
+            "workingType" to "MARK_PRICE",
+            "clientAlgoId" to request.clientAlgoId,
+        )
+        request.triggerPrice?.let { params.add("triggerPrice" to it.toPlainString()) }
+        if (request.closePosition) {
+            params.add("closePosition" to "true")
+        } else {
+            request.quantity?.let { params.add("quantity" to it.toPlainString()) }
+            if (request.reduceOnly) params.add("reduceOnly" to "true")
+        }
+        request.callbackRate?.let { params.add("callbackRate" to it.toString()) }
+        return signedRequest("POST", "/fapi/v1/algoOrder", params)
+            .mapOk { el -> el.objOrNull()?.let { o -> parseAlgo(o) } }
+    }
 
     override suspend fun queryConditionalOrder(clientAlgoId: String): ExchangeResult<AlgoOrderInfo> =
         signedGet("/fapi/v1/algoOrder", listOf("clientAlgoId" to clientAlgoId)).mapOk { el ->

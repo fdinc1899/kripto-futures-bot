@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.data.settings.SelectedSymbolStore
 import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.AccountSummary
 import com.fatih.futuresbot.domain.model.BotStatus
 import com.fatih.futuresbot.domain.model.ConnectionState
+import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
@@ -34,12 +36,14 @@ data class DashboardUiState(
     val symbol: SymbolSnapshot? = null,
     val botStatus: BotStatus = BotStatus.STOPPED,
     val emergencyStopped: Boolean = false,
+    val risk: RiskSettings = RiskSettings(),
 )
 
 private data class ConnectionInfo(
     val rest: ConnectionState,
     val stream: ConnectionState,
     val error: String?,
+    val risk: RiskSettings,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -48,6 +52,7 @@ class DashboardViewModel(
     marketRepository: MarketRepository,
     modeStore: TradingModeStore,
     symbolStore: SelectedSymbolStore,
+    riskStore: RiskSettingsStore,
     private val guard: TradingGuard,
     private val orderManager: OrderManager,
     private val appScope: CoroutineScope,
@@ -57,7 +62,8 @@ class DashboardViewModel(
         accountRepository.connection,
         marketRepository.streamState,
         accountRepository.lastError,
-    ) { rest, stream, error -> ConnectionInfo(rest, stream, error?.userMessage) }
+        riskStore.settings,
+    ) { rest, stream, error, risk -> ConnectionInfo(rest, stream, error?.userMessage, risk) }
 
     val state: StateFlow<DashboardUiState> = combine(
         modeStore.mode,
@@ -75,6 +81,7 @@ class DashboardViewModel(
             symbol = symbol,
             botStatus = BotStatus.STOPPED,
             emergencyStopped = emergencyStopped,
+            risk = conn.risk,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
@@ -95,6 +102,7 @@ class DashboardViewModel(
                     marketRepository = container.marketRepository,
                     modeStore = container.tradingModeStore,
                     symbolStore = container.selectedSymbolStore,
+                    riskStore = container.riskSettingsStore,
                     guard = container.tradingGuard,
                     orderManager = container.orderManager,
                     appScope = container.appScope,

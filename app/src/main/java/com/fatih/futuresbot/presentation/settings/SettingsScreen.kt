@@ -1,12 +1,14 @@
 package com.fatih.futuresbot.presentation.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -14,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -40,6 +44,8 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
     val hasKeys by container.credentialStore.hasCredentials.collectAsStateWithLifecycle()
     val mode by container.tradingModeStore.mode.collectAsStateWithLifecycle()
     val testing by vm.testing.collectAsStateWithLifecycle()
+    val riskForm by vm.riskForm.collectAsStateWithLifecycle()
+    val riskSaved by vm.riskSaved.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -97,6 +103,85 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
         }
 
         SectionCard {
+            Text("Risk ayarları", fontWeight = FontWeight.Bold)
+            Text(
+                text = "Bu sınırlar hem elle açılan emirlerde hem de bot aşamasında uygulanır.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    RiskField("İşlem riski %", riskForm.riskPerTrade) { value ->
+                        vm.updateRiskForm { it.copy(riskPerTrade = value) }
+                    }
+                }
+                Box(Modifier.weight(1f)) {
+                    RiskField("Günlük zarar %", riskForm.maxDailyLoss) { value ->
+                        vm.updateRiskForm { it.copy(maxDailyLoss = value) }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    RiskField("Maks. pozisyon", riskForm.maxOpenPositions) { value ->
+                        vm.updateRiskForm { it.copy(maxOpenPositions = value) }
+                    }
+                }
+                Box(Modifier.weight(1f)) {
+                    RiskField("Maks. kaldıraç", riskForm.maxLeverage) { value ->
+                        vm.updateRiskForm { it.copy(maxLeverage = value) }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    RiskField("Min Risk/Ödül", riskForm.minRiskReward) { value ->
+                        vm.updateRiskForm { it.copy(minRiskReward = value) }
+                    }
+                }
+                Box(Modifier.weight(1f)) {
+                    RiskField("Trailing %", riskForm.trailingCallback) { value ->
+                        vm.updateRiskForm { it.copy(trailingCallback = value) }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    RiskField("Varsayılan SL %", riskForm.defaultStopLoss) { value ->
+                        vm.updateRiskForm { it.copy(defaultStopLoss = value) }
+                    }
+                }
+                Box(Modifier.weight(1f)) {
+                    RiskField("Varsayılan TP %", riskForm.defaultTakeProfit) { value ->
+                        vm.updateRiskForm { it.copy(defaultTakeProfit = value) }
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Trailing stop", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = "Açıkken Take-Profit yerine trailing stop kullanılır.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = riskForm.trailingEnabled,
+                    onCheckedChange = { checked ->
+                        vm.updateRiskForm { it.copy(trailingEnabled = checked) }
+                    },
+                )
+            }
+            Button(onClick = vm::saveRisk, modifier = Modifier.fillMaxWidth()) {
+                Text("Risk ayarlarını kaydet")
+            }
+            riskSaved?.let {
+                Text(it, color = TradeColors.Long, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        SectionCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("GERÇEK İŞLEMLERİ ETKİNLEŞTİR", fontWeight = FontWeight.Bold)
@@ -135,4 +220,16 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
             },
         )
     }
+}
+
+@Composable
+private fun RiskField(label: String, value: String, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { raw -> onChange(raw.replace(',', '.').filter { it.isDigit() || it == '.' }.take(8)) },
+        label = { Text(label, style = MaterialTheme.typography.bodySmall) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }

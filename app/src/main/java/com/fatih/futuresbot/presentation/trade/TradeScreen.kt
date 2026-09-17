@@ -45,6 +45,7 @@ import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.domain.model.ConnectionState
 import com.fatih.futuresbot.domain.model.OrderType
 import com.fatih.futuresbot.domain.model.PositionSide
+import com.fatih.futuresbot.domain.model.SizingMode
 import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.presentation.common.ActionResultCard
 import com.fatih.futuresbot.presentation.common.Fmt
@@ -123,21 +124,42 @@ fun TradeScreen(
                 NumberField("Limit fiyatı (USDT)", form.limitPrice, vm::setLimitPrice)
             }
 
-            Text("Kaldıraç: ${form.leverage}x", fontWeight = FontWeight.SemiBold)
+            val maxLeverage = minOf(OrderManager.MAX_LEVERAGE, state.risk.maxLeverage)
+            Text("Kaldıraç: ${form.leverage}x (üst sınır ${maxLeverage}x)", fontWeight = FontWeight.SemiBold)
             Slider(
-                value = form.leverage.toFloat(),
+                value = form.leverage.coerceAtMost(maxLeverage).toFloat(),
                 onValueChange = { vm.setLeverage(it.roundToInt()) },
-                valueRange = 1f..OrderManager.MAX_LEVERAGE.toFloat(),
-                steps = OrderManager.MAX_LEVERAGE - 2,
+                valueRange = 1f..maxLeverage.toFloat(),
+                steps = (maxLeverage - 2).coerceAtLeast(0),
             )
 
-            NumberField("Marjin (USDT)", form.margin, vm::setMargin)
-            val margin = form.margin.toDoubleOrNull()
-            Text(
-                text = "Pozisyon büyüklüğü ≈ " + Fmt.usdt(margin?.let { it * form.leverage }),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            SegmentRow(
+                options = listOf("Risk %'e göre", "Marjin gir"),
+                selectedIndex = if (form.sizing == SizingMode.RISK) 0 else 1,
+                selectedColor = TradeColors.Accent,
+                onSelect = { vm.setSizing(if (it == 0) SizingMode.RISK else SizingMode.MARGIN) },
             )
+            if (form.sizing == SizingMode.RISK) {
+                NumberField("İşlem riski (%)", form.riskPercent, vm::setRiskPercent)
+                val riskAmount = form.riskPercent.toDoubleOrNull()?.let { p ->
+                    state.walletBalance?.let { it * p / 100.0 }
+                }
+                Text(
+                    text = "Riske edilen ≈ " + Fmt.usdt(riskAmount) +
+                        " · miktar, Stop-Loss mesafesine göre hesaplanır " +
+                        "(üst sınır %${plainPercent(state.risk.riskPerTradePercent)})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                NumberField("Marjin (USDT)", form.margin, vm::setMargin)
+                val margin = form.margin.toDoubleOrNull()
+                Text(
+                    text = "Pozisyon büyüklüğü ≈ " + Fmt.usdt(margin?.let { it * form.leverage }),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
@@ -149,7 +171,8 @@ fun TradeScreen(
             }
             Text(
                 text = "SL ve TP, giriş fiyatına göre fiyat değişim yüzdesidir. SL zorunludur; " +
-                    "TP istemiyorsan boş bırak.",
+                    "TP istemiyorsan boş bırak. Min Risk/Ödül: ${plainPercent(state.risk.minRiskReward)}" +
+                    if (state.risk.trailingStopEnabled) " · trailing stop açık" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -206,6 +229,8 @@ fun TradeScreen(
         )
     }
 }
+
+private fun plainPercent(value: Double): String = String.format(Locale.US, "%.2f", value)
 
 @Composable
 private fun WarningText(text: String) {
@@ -305,6 +330,12 @@ private fun ConfirmOrderDialog(
                 }
                 StatRow("Tahmini likidasyon*", Fmt.price(preview.estimatedLiquidation))
                 StatRow("Kullanılabilir bakiye", Fmt.usdt(preview.availableBalance))
+                StatRow("İşlem riski üst sınırı", Fmt.usdt(preview.riskAmountLimit))
+                StatRow("Açık pozisyon", preview.openPositions.toString())
+                StatRow("Bugünkü zarar", "%" + plainPercent(preview.dailyLossPercent))
+                if (preview.trailingEnabled) {
+                    StatRow("Çıkış", "Trailing stop", TradeColors.Accent)
+                }
                 preview.warnings.forEach {
                     Text("⚠ $it", color = TradeColors.Accent, style = MaterialTheme.typography.bodySmall)
                 }

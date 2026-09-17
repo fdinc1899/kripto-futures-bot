@@ -5,11 +5,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.data.settings.SelectedSymbolStore
 import com.fatih.futuresbot.domain.model.AccountSummary
 import com.fatih.futuresbot.domain.model.ConnectionState
 import com.fatih.futuresbot.domain.model.OrderType
 import com.fatih.futuresbot.domain.model.PositionSide
+import com.fatih.futuresbot.domain.model.RiskSettings
+import com.fatih.futuresbot.domain.model.SizingMode
 import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.trading.ActionResult
@@ -28,11 +31,24 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private fun plainOf(value: Double): String =
+    java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+
+/** Form varsayılanları risk ayarlarından gelir. */
+private fun defaultForm(risk: RiskSettings): TradeForm = TradeForm(
+    leverage = minOf(5, risk.maxLeverage),
+    riskPercent = plainOf(risk.riskPerTradePercent),
+    stopLoss = plainOf(risk.defaultStopLossPercent),
+    takeProfit = plainOf(risk.defaultTakeProfitPercent),
+)
+
 data class TradeForm(
     val side: PositionSide = PositionSide.LONG,
     val type: OrderType = OrderType.MARKET,
     val limitPrice: String = "",
     val leverage: Int = 5,
+    val sizing: SizingMode = SizingMode.RISK,
+    val riskPercent: String = "1",
     val margin: String = "100",
     val stopLoss: String = "2",
     val takeProfit: String = "4",
@@ -54,6 +70,8 @@ data class TradeUiState(
     val availableBalance: Double? = null,
     val connection: ConnectionState = ConnectionState.DISCONNECTED,
     val emergencyStopped: Boolean = false,
+    val risk: RiskSettings = RiskSettings(),
+    val walletBalance: Double? = null,
 )
 
 private data class MarketInfo(
@@ -67,9 +85,10 @@ class TradeViewModel(
     accountRepository: AccountRepository,
     private val symbolStore: SelectedSymbolStore,
     guard: TradingGuard,
+    riskStore: RiskSettingsStore,
 ) : ViewModel() {
 
-    private val form = MutableStateFlow(TradeForm())
+    private val form = MutableStateFlow(defaultForm(riskStore.settings.value))
     private val ops = MutableStateFlow(TradeOps())
 
     private val marketInfo = combine(
@@ -82,8 +101,8 @@ class TradeViewModel(
         ops,
         marketInfo,
         accountRepository.connection,
-        guard.emergencyStopped,
-    ) { f, o, info, connection, stopped ->
+        combine(guard.emergencyStopped, riskStore.settings) { stopped, risk -> stopped to risk },
+    ) { f, o, info, connection, guardAndRisk ->
         TradeUiState(
             symbol = info.snapshot.symbol,
             form = f,
@@ -92,7 +111,9 @@ class TradeViewModel(
             markPrice = info.snapshot.markPrice,
             availableBalance = info.account?.availableBalance,
             connection = connection,
-            emergencyStopped = stopped,
+            emergencyStopped = guardAndRisk.first,
+            risk = guardAndRisk.second,
+            walletBalance = info.account?.walletBalance,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TradeUiState())
 
@@ -116,6 +137,10 @@ class TradeViewModel(
 
     fun setLimitPrice(value: String) = updateForm { it.copy(limitPrice = clean(value)) }
 
+    fun setSizing(mode: SizingMode) = updateForm { it.copy(sizing = mode) }
+
+    fun setRiskPercent(value: String) = updateForm { it.copy(riskPercent = clean(value)) }
+
     fun setLeverage(value: Int) = updateForm {
         it.copy(leverage = value.coerceIn(1, OrderManager.MAX_LEVERAGE))
     }
@@ -135,6 +160,8 @@ class TradeViewModel(
             type = f.type,
             limitPrice = f.limitPrice.toDoubleOrNull(),
             leverage = f.leverage,
+            sizing = f.sizing,
+            riskPercent = f.riskPercent.toDoubleOrNull(),
             marginUsdt = f.margin.toDoubleOrNull() ?: 0.0,
             stopLossPercent = f.stopLoss.toDoubleOrNull() ?: 0.0,
             takeProfitPercent = if (f.takeProfit.isBlank()) null else f.takeProfit.toDoubleOrNull() ?: -1.0,
@@ -181,8 +208,7 @@ class TradeViewModel(
     private fun clean(value: String): String =
         value.replace(',', '.').filter { it.isDigit() || it == '.' }.take(16)
 
-    private fun plain(value: Double): String =
-        java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+    private fun plain(value: Double): String = plainOf(value)
 
     companion object {
         fun factory(container: AppContainer) = viewModelFactory {
@@ -192,6 +218,7 @@ class TradeViewModel(
                     accountRepository = container.accountRepository,
                     symbolStore = container.selectedSymbolStore,
                     guard = container.tradingGuard,
+                    riskStore = container.riskSettingsStore,
                 )
             }
         }

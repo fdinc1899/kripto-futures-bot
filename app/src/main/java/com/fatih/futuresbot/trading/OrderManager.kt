@@ -10,11 +10,17 @@ import com.fatih.futuresbot.domain.model.NewOrderRequest
 import com.fatih.futuresbot.domain.model.OrderInfo
 import com.fatih.futuresbot.domain.model.OrderType
 import com.fatih.futuresbot.domain.model.PositionSide
+import com.fatih.futuresbot.data.settings.RiskSettingsStore
+import com.fatih.futuresbot.domain.model.RiskSettings
+import com.fatih.futuresbot.domain.model.SizingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
+import java.time.LocalDate
+import java.time.ZoneId
 import java.math.BigDecimal
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.min
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -34,6 +40,9 @@ data class OrderIntent(
     val type: OrderType,
     val limitPrice: Double?,
     val leverage: Int,
+    /** Miktar nasıl hesaplanacak: risk yüzdesinden mi, marjinden mi */
+    val sizing: SizingMode,
+    val riskPercent: Double?,
     val marginUsdt: Double,
     /** Giriş fiyatına göre fiyat değişim yüzdesi */
     val stopLossPercent: Double,
@@ -54,6 +63,10 @@ data class OrderPreview(
     val riskReward: Double?,
     val estimatedLiquidation: Double,
     val availableBalance: Double,
+    val riskAmountLimit: Double,
+    val dailyLossPercent: Double,
+    val openPositions: Int,
+    val trailingEnabled: Boolean,
     val warnings: List<String>,
     val clientOrderId: String,
     val createdAt: Long,
@@ -93,6 +106,7 @@ class OrderManager(
     private val accountRepository: AccountRepository,
     private val guard: TradingGuard,
     private val planStore: ProtectionPlanStore,
+    private val riskStore: RiskSettingsStore,
 ) {
     private val mutex = Mutex()
     @Volatile private var lastSubmitKey: String? = null
@@ -105,10 +119,26 @@ class OrderManager(
     // ================================================================ Önizleme
 
     suspend fun preview(intent: OrderIntent): PreviewResult {
+        val settings = riskStore.settings.value
         val reasons = mutableListOf<String>()
         reasons.addAll(commonBlockers())
-        if (intent.leverage !in 1..MAX_LEVERAGE) reasons.add("Kaldıraç 1–${MAX_LEVERAGE}x arasında olmalı.")
-        if (intent.marginUsdt <= 0.0) reasons.add("Marjin tutarı 0'dan büyük olmalı.")
+
+        val maxLeverage = min(MAX_LEVERAGE, settings.maxLeverage)
+        if (intent.leverage !in 1..maxLeverage) {
+            reasons.add("Kaldıraç 1–${maxLeverage}x arasında olmalı (risk ayarındaki üst sınır).")
+        }
+        val riskPercent = intent.riskPercent
+        when (intent.sizing) {
+            SizingMode.RISK -> when {
+                riskPercent == null || riskPercent <= 0.0 -> reasons.add("İşlem riski yüzdesi girilmeli.")
+                riskPercent > settings.riskPerTradePercent -> reasons.add(
+                    "İşlem riski, ayarlardaki üst sınırı (%${num(settings.riskPerTradePercent)}) aşıyor."
+                )
+            }
+            SizingMode.MARGIN -> if (intent.marginUsdt <= 0.0) {
+                reasons.add("Marjin tutarı 0'dan büyük olmalı.")
+            }
+        }
         if (intent.stopLossPercent <= 0.0) reasons.add("Stop-Loss zorunlu; 0'dan büyük bir yüzde gir.")
         if (intent.stopLossPercent >= 50.0) reasons.add("Stop-Loss %50'den küçük olmalı.")
         val tpPercent = intent.takeProfitPercent
@@ -134,6 +164,18 @@ class OrderManager(
             is ExchangeResult.Ok -> r.value
             is ExchangeResult.Err -> return rejected("Bakiye alınamadı: ${r.error.userMessage}")
         }
+        val positions = when (val r = client.positions()) {
+            is ExchangeResult.Ok -> r.value
+            is ExchangeResult.Err -> return rejected("Pozisyonlar okunamadı: ${r.error.userMessage}")
+        }
+        val dailyPnl = when (val r = client.realizedPnlSince(startOfTodayMs())) {
+            is ExchangeResult.Ok -> r.value
+            is ExchangeResult.Err -> return rejected("Günlük PNL okunamadı: ${r.error.userMessage}")
+        }
+
+        val warnings = mutableListOf<String>()
+        reasons.addAll(riskBlockers(settings, balance.walletBalance, dailyPnl, positions.size))
+        val dailyLossPercent = RiskEngine.dailyLossPercent(dailyPnl, balance.walletBalance)
 
         val isLong = intent.side == PositionSide.LONG
         val isMarket = intent.type == OrderType.MARKET
@@ -142,7 +184,6 @@ class OrderManager(
         if (entry.signum() <= 0) return rejected("Giriş fiyatı geçersiz.")
         val entryD = entry.toDouble()
 
-        val warnings = mutableListOf<String>()
         if (!isMarket) {
             if (isLong && entryD > mark) warnings.add("Limit fiyatı piyasanın üstünde: emir hemen dolabilir.")
             if (!isLong && entryD < mark) warnings.add("Limit fiyatı piyasanın altında: emir hemen dolabilir.")
@@ -151,13 +192,49 @@ class OrderManager(
             warnings.add("Limit emir dolduğunda SL/TP, uygulama açıkken otomatik eklenir.")
         }
 
-        // Miktar: (marjin × kaldıraç) / giriş → adıma göre AŞAĞI yuvarlanır
+        // Stop-Loss / Take-Profit fiyatları (miktar bunlara göre hesaplanır)
+        val slFactor = intent.stopLossPercent / 100.0
+        val slRaw = if (isLong) entryD * (1 - slFactor) else entryD * (1 + slFactor)
+        val stopLoss = slRaw.toDecimal().roundToStep(rules.tickSize)
+        val takeProfit = tpPercent?.let { p ->
+            val f = p / 100.0
+            val raw = if (isLong) entryD * (1 + f) else entryD * (1 - f)
+            raw.toDecimal().roundToStep(rules.tickSize)
+        }
+        val slD = stopLoss.toDouble()
+        if (stopLoss.signum() <= 0) return rejected("Stop-Loss fiyatı geçersiz.")
+        if (isLong && slD >= mark) reasons.add("Stop-Loss mevcut fiyatın altında olmalı (aksi halde hemen tetiklenir).")
+        if (!isLong && slD <= mark) reasons.add("Stop-Loss mevcut fiyatın üstünde olmalı (aksi halde hemen tetiklenir).")
+        val tpD = takeProfit?.toDouble()
+        if (tpD != null) {
+            if (tpD <= 0.0) reasons.add("Take-Profit fiyatı geçersiz.")
+            if (isLong && tpD <= mark) reasons.add("Take-Profit mevcut fiyatın üstünde olmalı.")
+            if (!isLong && tpD >= mark) reasons.add("Take-Profit mevcut fiyatın altında olmalı.")
+        }
+        if (reasons.isNotEmpty()) return PreviewResult.Rejected(reasons)
+
+        // Miktar: risk moduysa SL mesafesinden, marjin moduysa marjin × kaldıraçtan
+        val riskLimit = RiskEngine.maxRiskAmount(settings, balance.walletBalance)
         val step = if (isMarket) rules.marketStepSize else rules.stepSize
         val minQty = if (isMarket) rules.marketMinQty else rules.minQty
         val maxQty = if (isMarket) rules.marketMaxQty else rules.maxQty
-        val quantity = (intent.marginUsdt * intent.leverage / entryD).toDecimal().floorToStep(step)
+        val targetQty = when (intent.sizing) {
+            SizingMode.RISK -> {
+                val riskAmount = balance.walletBalance * (riskPercent ?: 0.0) / 100.0
+                RiskEngine.quantityForRisk(riskAmount, entryD, slD)
+            }
+            SizingMode.MARGIN -> intent.marginUsdt * intent.leverage / entryD
+        }
+        val quantity = targetQty.toDecimal().floorToStep(step)
         if (quantity.signum() <= 0 || quantity < minQty) {
-            reasons.add("Miktar çok küçük (en az ${minQty.toPlainString()}). Marjini veya kaldıracı artır.")
+            reasons.add(
+                "Miktar çok küçük (en az ${minQty.toPlainString()}). " +
+                    if (intent.sizing == SizingMode.RISK) {
+                        "Risk yüzdesini artır ya da Stop-Loss'u yaklaştır."
+                    } else {
+                        "Marjini veya kaldıracı artır."
+                    }
+            )
         }
         if (maxQty.signum() > 0 && quantity > maxQty) {
             reasons.add("Miktar üst sınırı aşıyor (en fazla ${maxQty.toPlainString()}).")
@@ -175,26 +252,6 @@ class OrderManager(
             )
         }
 
-        // Stop-Loss / Take-Profit fiyatları
-        val slFactor = intent.stopLossPercent / 100.0
-        val slRaw = if (isLong) entryD * (1 - slFactor) else entryD * (1 + slFactor)
-        val stopLoss = slRaw.toDecimal().roundToStep(rules.tickSize)
-        val takeProfit = tpPercent?.let { p ->
-            val f = p / 100.0
-            val raw = if (isLong) entryD * (1 + f) else entryD * (1 - f)
-            raw.toDecimal().roundToStep(rules.tickSize)
-        }
-        val slD = stopLoss.toDouble()
-        if (stopLoss.signum() <= 0) reasons.add("Stop-Loss fiyatı geçersiz.")
-        if (isLong && slD >= mark) reasons.add("Stop-Loss mevcut fiyatın altında olmalı (aksi halde hemen tetiklenir).")
-        if (!isLong && slD <= mark) reasons.add("Stop-Loss mevcut fiyatın üstünde olmalı (aksi halde hemen tetiklenir).")
-        val tpD = takeProfit?.toDouble()
-        if (tpD != null) {
-            if (tpD <= 0.0) reasons.add("Take-Profit fiyatı geçersiz.")
-            if (isLong && tpD <= mark) reasons.add("Take-Profit mevcut fiyatın üstünde olmalı.")
-            if (!isLong && tpD >= mark) reasons.add("Take-Profit mevcut fiyatın altında olmalı.")
-        }
-
         val liquidation = estimateLiquidation(entryD, intent.leverage, isLong)
         if (isLong && slD <= liquidation) {
             reasons.add("Stop-Loss tahmini likidasyon fiyatının altında kalıyor. Kaldıracı düşür veya SL'i yaklaştır.")
@@ -202,15 +259,35 @@ class OrderManager(
         if (!isLong && slD >= liquidation) {
             reasons.add("Stop-Loss tahmini likidasyon fiyatının üstünde kalıyor. Kaldıracı düşür veya SL'i yaklaştır.")
         }
-        if (reasons.isNotEmpty()) return PreviewResult.Rejected(reasons)
 
         val loss = qtyD * abs(entryD - slD)
         val profit = tpD?.let { qtyD * abs(it - entryD) }
         val riskReward = if (profit != null && loss > 0.0) profit / loss else null
-        if (riskReward != null && riskReward < 1.0) warnings.add("Risk/Ödül oranı 1'in altında.")
-        if (balance.walletBalance > 0.0) {
-            val lossPct = loss / balance.walletBalance * 100.0
-            if (lossPct > 5.0) warnings.add("Stop-Loss'ta kayıp bakiyenin %${num(lossPct)}'i — yüksek risk.")
+
+        // İşlem başına maksimum risk kuralı (şartname madde 6)
+        if (loss > riskLimit * RISK_TOLERANCE && riskLimit > 0.0) {
+            reasons.add(
+                "İşlem riski ${num(loss)} USDT, üst sınır ${num(riskLimit)} USDT " +
+                    "(bakiyenin %${num(settings.riskPerTradePercent)}'i). Miktarı veya SL mesafesini küçült."
+            )
+        }
+        if (riskReward != null && riskReward < settings.minRiskReward) {
+            reasons.add(
+                "Risk/Ödül ${num(riskReward)}, ayarlanan alt sınırın (${num(settings.minRiskReward)}) altında."
+            )
+        }
+        if (reasons.isNotEmpty()) return PreviewResult.Rejected(reasons)
+
+        if (takeProfit == null && !settings.trailingStopEnabled) {
+            warnings.add("Take-Profit yok: pozisyon yalnızca Stop-Loss ile kapanır.")
+        }
+        if (settings.trailingStopEnabled) {
+            warnings.add("Trailing stop açık (%${num(settings.trailingCallbackPercent)}): TP yerine trailing kullanılır.")
+        }
+        if (dailyLossPercent > 0.0) {
+            warnings.add(
+                "Bugünkü zarar %${num(dailyLossPercent)} · günlük limit %${num(settings.maxDailyLossPercent)}."
+            )
         }
 
         return PreviewResult.Ready(
@@ -228,11 +305,36 @@ class OrderManager(
                 riskReward = riskReward,
                 estimatedLiquidation = liquidation,
                 availableBalance = balance.availableBalance,
+                riskAmountLimit = riskLimit,
+                dailyLossPercent = dailyLossPercent,
+                openPositions = positions.size,
+                trailingEnabled = settings.trailingStopEnabled,
                 warnings = warnings,
                 clientOrderId = newClientId("e"),
                 createdAt = System.currentTimeMillis(),
             )
         )
+    }
+
+    /** Günlük zarar limiti ve maksimum açık pozisyon kontrolü. */
+    private fun riskBlockers(
+        settings: RiskSettings,
+        walletBalance: Double,
+        dailyRealizedPnl: Double,
+        openPositions: Int,
+    ): List<String> {
+        val out = mutableListOf<String>()
+        if (RiskEngine.dailyLimitReached(settings, dailyRealizedPnl, walletBalance)) {
+            out.add(
+                "Günlük zarar limiti doldu (bugün %" +
+                    num(RiskEngine.dailyLossPercent(dailyRealizedPnl, walletBalance)) +
+                    ", limit %${num(settings.maxDailyLossPercent)}). Bugün yeni işlem açılmaz."
+            )
+        }
+        if (openPositions >= settings.maxOpenPositions) {
+            out.add("Maksimum açık pozisyon sayısına ulaşıldı (${settings.maxOpenPositions}).")
+        }
+        return out
     }
 
     // ================================================================ Gönderim
@@ -301,6 +403,22 @@ class OrderManager(
         }
         steps.ok("Bakiye yeterli")
 
+        val settings = riskStore.settings.value
+        val dailyPnl = when (val r = client.realizedPnlSince(startOfTodayMs())) {
+            is ExchangeResult.Ok -> r.value
+            is ExchangeResult.Err -> return failure(steps, "Günlük PNL okunamadı: ${r.error.userMessage}")
+        }
+        val riskIssues = riskBlockers(settings, balance.walletBalance, dailyPnl, positions.size)
+        if (riskIssues.isNotEmpty()) return failure(steps, riskIssues.joinToString(" "))
+        val riskLimit = RiskEngine.maxRiskAmount(settings, balance.walletBalance)
+        if (riskLimit > 0.0 && preview.estimatedLoss > riskLimit * RISK_TOLERANCE) {
+            return failure(steps, "İşlem riski üst sınırı aşıyor (${num(preview.estimatedLoss)} > ${num(riskLimit)} USDT).")
+        }
+        steps.ok(
+            "Risk kuralları: risk ${num(preview.estimatedLoss)}/${num(riskLimit)} USDT · " +
+                "pozisyon ${positions.size}/${settings.maxOpenPositions} · günlük zarar %${num(RiskEngine.dailyLossPercent(dailyPnl, balance.walletBalance))}"
+        )
+
         val mark = when (val r = client.markPrice(symbol)) {
             is ExchangeResult.Ok -> r.value.markPrice
             is ExchangeResult.Err -> return failure(steps, "Güncel fiyat alınamadı: ${r.error.userMessage}")
@@ -366,12 +484,26 @@ class OrderManager(
                     steps.add(StepLog("Emir kısmen doldu; kalan kısım iptal edildi.", false))
                 }
                 steps.ok("Giriş: ${qtyText(order.executedQty)} @ ${num(order.avgPrice)}")
-                protectOrRollback(steps, symbol, intent.side, preview.stopLossPrice, preview.takeProfitPrice)
+                protectOrRollback(
+                    steps,
+                    symbol,
+                    intent.side,
+                    preview.stopLossPrice,
+                    preview.takeProfitPrice,
+                    order.executedQty.toDecimal(),
+                )
             }
             OrderType.LIMIT -> when (order.status) {
                 "FILLED", "PARTIALLY_FILLED" -> {
                     steps.ok("Limit emir doldu (${order.status})")
-                    protectOrRollback(steps, symbol, intent.side, preview.stopLossPrice, preview.takeProfitPrice)
+                    protectOrRollback(
+                        steps,
+                        symbol,
+                        intent.side,
+                        preview.stopLossPrice,
+                        preview.takeProfitPrice,
+                        order.executedQty.toDecimal(),
+                    )
                 }
                 "NEW" -> {
                     planStore.save(
@@ -517,6 +649,7 @@ class OrderManager(
                     plan.side,
                     stopLoss,
                     plan.takeProfit?.toBigDecimalOrNull(),
+                    order.executedQty.toDecimal(),
                 )
                 planStore.remove(plan.symbol)
                 _lastEvent.value = "${plan.symbol} limit emri doldu: ${result.message}"
@@ -546,6 +679,7 @@ class OrderManager(
                             plan.side,
                             stopLoss,
                             plan.takeProfit?.toBigDecimalOrNull(),
+                            info.executedQty.toDecimal(),
                         )
                     }
                 }
@@ -654,7 +788,9 @@ class OrderManager(
         side: PositionSide,
         stopLoss: BigDecimal,
         takeProfit: BigDecimal?,
+        positionQuantity: BigDecimal,
     ): ActionResult {
+        val settings = riskStore.settings.value
         val closeSide = if (side == PositionSide.LONG) "SELL" else "BUY"
         val sl = placeConditionalWithVerification(
             ConditionalOrderRequest(symbol, closeSide, "STOP_MARKET", stopLoss, newClientId("sl"))
@@ -677,7 +813,31 @@ class OrderManager(
         }
         steps.ok("Stop-Loss aktif @ ${stopLoss.toPlainString()} (mark fiyatı)")
 
-        if (takeProfit != null) {
+        if (settings.trailingStopEnabled && positionQuantity.signum() > 0) {
+            val trailingQty = quantityForStep(symbol, positionQuantity)
+            val trailing = placeConditionalWithVerification(
+                ConditionalOrderRequest(
+                    symbol = symbol,
+                    side = closeSide,
+                    type = "TRAILING_STOP_MARKET",
+                    triggerPrice = null,
+                    clientAlgoId = newClientId("ts"),
+                    closePosition = false,
+                    quantity = trailingQty,
+                    reduceOnly = true,
+                    callbackRate = settings.trailingCallbackPercent,
+                )
+            )
+            when (trailing) {
+                is PlaceOutcome.Placed -> steps.ok("Trailing stop aktif (%${num(settings.trailingCallbackPercent)})")
+                is PlaceOutcome.Rejected -> steps.add(
+                    StepLog("Trailing stop yerleştirilemedi: ${trailing.error.userMessage} (SL aktif)", false)
+                )
+                is PlaceOutcome.Unknown -> steps.add(
+                    StepLog("Trailing stop durumu doğrulanamadı; Orders ekranını kontrol et", false)
+                )
+            }
+        } else if (takeProfit != null) {
             val tp = placeConditionalWithVerification(
                 ConditionalOrderRequest(symbol, closeSide, "TAKE_PROFIT_MARKET", takeProfit, newClientId("tp"))
             )
@@ -762,6 +922,16 @@ class OrderManager(
         }
     }
 
+    /** Trailing stop için miktarı parite adımına yuvarlar. */
+    private suspend fun quantityForStep(symbol: String, quantity: BigDecimal): BigDecimal {
+        val rules = client.symbolRules(symbol)
+        return if (rules is ExchangeResult.Ok) {
+            quantity.floorToStep(rules.value.stepSize)
+        } else {
+            quantity
+        }
+    }
+
     private fun isAmbiguous(error: ExchangeError): Boolean =
         error is ExchangeError.Timeout ||
             error is ExchangeError.ConnectionFailed ||
@@ -814,6 +984,10 @@ class OrderManager(
         private const val VERIFY_DELAY_MS = 1_500L
         private const val WATCH_INTERVAL_MS = 5_000L
         private const val CLOSE_CHECK_DELAY_MS = 700L
+        private const val RISK_TOLERANCE = 1.05
+
+        fun startOfTodayMs(): Long =
+            LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         private val TERMINAL_STATUSES = setOf("CANCELED", "EXPIRED", "REJECTED", "EXPIRED_IN_MATCH")
 
         fun newClientId(prefix: String): String =

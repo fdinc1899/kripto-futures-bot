@@ -29,14 +29,21 @@ data class NewOrderRequest(
     val clientOrderId: String,
 )
 
-/** Pozisyonun tamamını kapatan koşullu emir (closePosition=true). */
+/**
+ * Koşullu (algo) emir. Varsayılan olarak pozisyonun tamamını kapatır.
+ * TRAILING_STOP_MARKET için triggerPrice gönderilmez; quantity + callbackRate kullanılır.
+ */
 data class ConditionalOrderRequest(
     val symbol: String,
     val side: String,
-    /** STOP_MARKET veya TAKE_PROFIT_MARKET */
+    /** STOP_MARKET, TAKE_PROFIT_MARKET veya TRAILING_STOP_MARKET */
     val type: String,
-    val triggerPrice: BigDecimal,
+    val triggerPrice: BigDecimal?,
     val clientAlgoId: String,
+    val closePosition: Boolean = true,
+    val quantity: BigDecimal? = null,
+    val reduceOnly: Boolean = false,
+    val callbackRate: Double? = null,
 )
 
 data class OrderInfo(

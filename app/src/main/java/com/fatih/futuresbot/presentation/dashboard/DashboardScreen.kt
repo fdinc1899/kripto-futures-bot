@@ -45,6 +45,8 @@ import com.fatih.futuresbot.presentation.common.SectionCard
 import com.fatih.futuresbot.presentation.common.StatRow
 import com.fatih.futuresbot.presentation.common.pnlColor
 import com.fatih.futuresbot.presentation.theme.TradeColors
+import com.fatih.futuresbot.trading.RiskEngine
+import java.util.Locale
 
 
 @Composable
@@ -157,6 +159,31 @@ private fun DashboardContent(
                     pnlColor(acc?.unrealizedPnl),
                 )
                 StatRow("Açık pozisyon", acc?.openPositions?.toString() ?: "—")
+                val dailyLoss = acc?.let {
+                    RiskEngine.dailyLossPercent(it.dailyRealizedPnl, it.walletBalance)
+                }
+                val limitReached = dailyLoss != null && dailyLoss >= state.risk.maxDailyLossPercent
+                StatRow(
+                    "Günlük zarar limiti",
+                    if (dailyLoss == null) {
+                        "—"
+                    } else {
+                        String.format(
+                            Locale.US,
+                            "%%%.2f / %%%.2f",
+                            dailyLoss,
+                            state.risk.maxDailyLossPercent,
+                        )
+                    },
+                    if (limitReached) TradeColors.Short else Color.Unspecified,
+                )
+                if (limitReached) {
+                    Text(
+                        text = "Günlük zarar limiti doldu — bugün yeni işlem açılmaz.",
+                        color = TradeColors.Short,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
 
             val sym = state.symbol
