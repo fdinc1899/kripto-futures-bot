@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.domain.model.ConnectionState
+import com.fatih.futuresbot.domain.model.PositionSide
 import com.fatih.futuresbot.presentation.common.ConnectionIndicator
 import com.fatih.futuresbot.presentation.common.Fmt
 import com.fatih.futuresbot.presentation.common.ModeBadge
@@ -44,14 +46,14 @@ import com.fatih.futuresbot.presentation.common.StatRow
 import com.fatih.futuresbot.presentation.common.pnlColor
 import com.fatih.futuresbot.presentation.theme.TradeColors
 
-/** Emir sistemi Aşama 8'de (testnet) bağlanınca true yapılacak. */
-private const val ORDERS_ENABLED = false
 
 @Composable
 fun DashboardScreen(
     container: AppContainer,
     onOpenBot: () -> Unit,
     onPickSymbol: () -> Unit,
+    onTrade: (PositionSide) -> Unit,
+    onOpenPositions: () -> Unit,
 ) {
     val vm: DashboardViewModel = viewModel(factory = DashboardViewModel.factory(container))
     val state by vm.state.collectAsStateWithLifecycle()
@@ -61,6 +63,8 @@ fun DashboardScreen(
         onResetEmergency = vm::resetEmergency,
         onOpenBot = onOpenBot,
         onPickSymbol = onPickSymbol,
+        onTrade = onTrade,
+        onOpenPositions = onOpenPositions,
     )
 }
 
@@ -71,6 +75,8 @@ private fun DashboardContent(
     onResetEmergency: () -> Unit,
     onOpenBot: () -> Unit,
     onPickSymbol: () -> Unit,
+    onTrade: (PositionSide) -> Unit,
+    onOpenPositions: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
@@ -105,14 +111,22 @@ private fun DashboardContent(
                         containerColor = TradeColors.Short.copy(alpha = 0.18f)
                     ),
                 ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.padding(16.dp)) {
                         Text(
-                            text = "ACİL DURDURMA AKTİF — yeni emir gönderilmez",
+                            text = "ACİL DURDURMA AKTİF",
                             color = TradeColors.Short,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = onResetEmergency) { Text("Sıfırla") }
+                        Text(
+                            text = "Yeni emir gönderilmez, bekleyen limit girişleri iptal edildi. " +
+                                "Açık pozisyonları Positions ekranından kapatabilirsin.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = onOpenPositions) { Text("Pozisyonları göster") }
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = onResetEmergency) { Text("Sıfırla") }
+                        }
                     }
                 }
             }
@@ -202,10 +216,11 @@ private fun DashboardContent(
                 }
             }
 
-            val tradeButtonsEnabled = ORDERS_ENABLED && !state.emergencyStopped
+            val connected = state.connection == ConnectionState.CONNECTED
+            val tradeButtonsEnabled = connected && !state.emergencyStopped
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    onClick = { },
+                    onClick = { onTrade(PositionSide.LONG) },
                     enabled = tradeButtonsEnabled,
                     modifier = Modifier.weight(1f).height(52.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -214,7 +229,7 @@ private fun DashboardContent(
                     ),
                 ) { Text("LONG", fontWeight = FontWeight.Bold) }
                 Button(
-                    onClick = { },
+                    onClick = { onTrade(PositionSide.SHORT) },
                     enabled = tradeButtonsEnabled,
                     modifier = Modifier.weight(1f).height(52.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -224,7 +239,11 @@ private fun DashboardContent(
                 ) { Text("SHORT", fontWeight = FontWeight.Bold) }
             }
             Text(
-                text = "Emir sistemi Aşama 8'de (testnet) bağlanacak.",
+                text = when {
+                    state.emergencyStopped -> "Acil durdurma aktifken emir açılamaz."
+                    !connected -> "Emir için borsa bağlantısı ve API anahtarı gerekli."
+                    else -> "TESTNET emri · her emirden önce onay ekranı gösterilir."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

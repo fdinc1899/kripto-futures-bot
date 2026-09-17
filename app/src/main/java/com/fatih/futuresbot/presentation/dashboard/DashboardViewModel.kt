@@ -14,6 +14,9 @@ import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.domain.repository.MarketRepository
+import com.fatih.futuresbot.trading.OrderManager
+import com.fatih.futuresbot.trading.TradingGuard
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,9 +48,10 @@ class DashboardViewModel(
     marketRepository: MarketRepository,
     modeStore: TradingModeStore,
     symbolStore: SelectedSymbolStore,
+    private val guard: TradingGuard,
+    private val orderManager: OrderManager,
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
-
-    private val emergency = MutableStateFlow(false)
 
     private val connectionInfo = combine(
         accountRepository.connection,
@@ -60,7 +64,7 @@ class DashboardViewModel(
         connectionInfo,
         accountRepository.accountSummary(),
         symbolStore.symbol.flatMapLatest { accountRepository.symbolSnapshot(it) },
-        emergency,
+        guard.emergencyStopped,
     ) { mode, conn, account, symbol, emergencyStopped ->
         DashboardUiState(
             mode = mode,
@@ -74,13 +78,13 @@ class DashboardViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
-    /** Onay istemez, anında etkili olur. Aşama 11'de bot motoruna bağlanacak. */
+    /** Onay istemez, anında etkili olur: yeni emirler kilitlenir, bekleyen limit girişleri iptal edilir. */
     fun emergencyStop() {
-        emergency.value = true
+        orderManager.emergencyStop(appScope)
     }
 
     fun resetEmergency() {
-        emergency.value = false
+        guard.reset()
     }
 
     companion object {
@@ -91,6 +95,9 @@ class DashboardViewModel(
                     marketRepository = container.marketRepository,
                     modeStore = container.tradingModeStore,
                     symbolStore = container.selectedSymbolStore,
+                    guard = container.tradingGuard,
+                    orderManager = container.orderManager,
+                    appScope = container.appScope,
                 )
             }
         }

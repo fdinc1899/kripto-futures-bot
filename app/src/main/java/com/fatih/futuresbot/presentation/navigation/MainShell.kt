@@ -42,7 +42,11 @@ import androidx.compose.ui.unit.dp
 import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.presentation.chart.ChartScreen
 import com.fatih.futuresbot.presentation.common.PlaceholderScreen
+import com.fatih.futuresbot.domain.model.PositionSide
 import com.fatih.futuresbot.presentation.dashboard.DashboardScreen
+import com.fatih.futuresbot.presentation.orders.OrdersScreen
+import com.fatih.futuresbot.presentation.positions.PositionsScreen
+import com.fatih.futuresbot.presentation.trade.TradeScreen
 import com.fatih.futuresbot.presentation.markets.MarketsScreen
 import com.fatih.futuresbot.presentation.settings.SettingsScreen
 
@@ -56,6 +60,7 @@ enum class Dest(val label: String, val icon: ImageVector) {
     HISTORY("History", Icons.Filled.History),
     SETTINGS("Settings", Icons.Filled.Settings),
     MORE("Daha", Icons.Filled.MoreHoriz),
+    TRADE("Emir", Icons.Filled.Receipt),
 }
 
 private val BOTTOM_ITEMS = listOf(Dest.DASHBOARD, Dest.MARKETS, Dest.CHART, Dest.BOT, Dest.MORE)
@@ -64,7 +69,12 @@ private val MORE_ITEMS = listOf(Dest.POSITIONS, Dest.ORDERS, Dest.HISTORY, Dest.
 @Composable
 fun MainShell(container: AppContainer, onAddKeys: () -> Unit) {
     var current by rememberSaveable { mutableStateOf(Dest.DASHBOARD) }
-    val selectedBottom = if (current in BOTTOM_ITEMS) current else Dest.MORE
+    var tradeSide by rememberSaveable { mutableStateOf(PositionSide.LONG) }
+    val selectedBottom = when (current) {
+        in BOTTOM_ITEMS -> current
+        Dest.TRADE -> Dest.DASHBOARD
+        else -> Dest.MORE
+    }
 
     BackHandler(enabled = current != Dest.DASHBOARD) {
         current = if (current in MORE_ITEMS) Dest.MORE else Dest.DASHBOARD
@@ -91,11 +101,22 @@ fun MainShell(container: AppContainer, onAddKeys: () -> Unit) {
                     container = container,
                     onOpenBot = { current = Dest.BOT },
                     onPickSymbol = { current = Dest.MARKETS },
+                    onTrade = { side ->
+                        tradeSide = side
+                        current = Dest.TRADE
+                    },
+                    onOpenPositions = { current = Dest.POSITIONS },
+                )
+                Dest.TRADE -> TradeScreen(
+                    container = container,
+                    side = tradeSide,
+                    onClose = { current = Dest.DASHBOARD },
+                    onOpenPositions = { current = Dest.POSITIONS },
                 )
                 Dest.MARKETS -> MarketsScreen(container, onSymbolSelected = { current = Dest.CHART })
                 Dest.CHART -> ChartScreen(container, onPickSymbol = { current = Dest.MARKETS })
-                Dest.POSITIONS -> PlaceholderScreen("Positions", "Açık pozisyonlar Aşama 8'de gelecek")
-                Dest.ORDERS -> PlaceholderScreen("Orders", "Emirler Aşama 8'de gelecek")
+                Dest.POSITIONS -> PositionsScreen(container)
+                Dest.ORDERS -> OrdersScreen(container)
                 Dest.BOT -> PlaceholderScreen("Bot", "Bot paneli Aşama 11'de gelecek")
                 Dest.HISTORY -> PlaceholderScreen("History", "İşlem geçmişi Aşama 12'de gelecek")
                 Dest.SETTINGS -> SettingsScreen(container, onAddKeys = onAddKeys)

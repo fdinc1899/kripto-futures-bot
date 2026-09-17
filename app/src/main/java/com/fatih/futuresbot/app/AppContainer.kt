@@ -14,6 +14,9 @@ import com.fatih.futuresbot.network.binance.BinanceMarketStream
 import com.fatih.futuresbot.security.CredentialStore
 import com.fatih.futuresbot.trading.ConnectionTester
 import com.fatih.futuresbot.trading.ExchangeClient
+import com.fatih.futuresbot.trading.OrderManager
+import com.fatih.futuresbot.trading.ProtectionPlanStore
+import com.fatih.futuresbot.trading.TradingGuard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,4 +52,13 @@ class AppContainer(context: Context) {
     )
 
     val connectionTester = ConnectionTester(exchangeClient)
+
+    val tradingGuard = TradingGuard(appContext)
+
+    val orderManager = OrderManager(
+        client = exchangeClient,
+        accountRepository = accountRepository,
+        guard = tradingGuard,
+        planStore = ProtectionPlanStore(appContext),
+    ).also { it.startProtectionWatcher(appScope, credentialStore.hasCredentials) }
 }

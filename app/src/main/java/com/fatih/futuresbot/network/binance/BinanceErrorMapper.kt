@@ -39,6 +39,9 @@ object BinanceErrorMapper {
         -1111, -1013, -4003 -> ExchangeError.InvalidQuantity
         -4028 -> ExchangeError.InvalidLeverage
         -4116 -> ExchangeError.DuplicateOrder
+        -2013, -2011 -> ExchangeError.OrderNotFound
+        -2021 -> ExchangeError.WouldTriggerImmediately
+        -2022 -> ExchangeError.ReduceOnlyRejected
         else -> null
     }
 
