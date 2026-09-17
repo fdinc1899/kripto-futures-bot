@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.presentation.bot.BotScreen
 import com.fatih.futuresbot.presentation.chart.ChartScreen
 import com.fatih.futuresbot.presentation.common.PlaceholderScreen
 import com.fatih.futuresbot.domain.model.PositionSide
@@ -117,7 +118,7 @@ fun MainShell(container: AppContainer, onAddKeys: () -> Unit) {
                 Dest.CHART -> ChartScreen(container, onPickSymbol = { current = Dest.MARKETS })
                 Dest.POSITIONS -> PositionsScreen(container)
                 Dest.ORDERS -> OrdersScreen(container)
-                Dest.BOT -> PlaceholderScreen("Bot", "Bot paneli Aşama 11'de gelecek")
+                Dest.BOT -> BotScreen(container)
                 Dest.HISTORY -> PlaceholderScreen("History", "İşlem geçmişi Aşama 12'de gelecek")
                 Dest.SETTINGS -> SettingsScreen(container, onAddKeys = onAddKeys)
                 Dest.MORE -> MoreScreen(onOpen = { current = it })

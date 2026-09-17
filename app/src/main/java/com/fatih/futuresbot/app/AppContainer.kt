@@ -5,6 +5,7 @@ import com.fatih.futuresbot.data.binance.BinanceAccountRepository
 import com.fatih.futuresbot.data.binance.BinanceMarketRepository
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.data.settings.SelectedSymbolStore
+import com.fatih.futuresbot.data.settings.StrategyStore
 import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
 import com.fatih.futuresbot.domain.repository.AccountRepository
@@ -32,6 +33,7 @@ class AppContainer(context: Context) {
     val tradingModeStore = TradingModeStore(appContext)
     val selectedSymbolStore = SelectedSymbolStore(appContext)
     val riskSettingsStore = RiskSettingsStore(appContext)
+    val strategyStore = StrategyStore(appContext)
 
     private val httpClient = HttpClientFactory.create()
 
