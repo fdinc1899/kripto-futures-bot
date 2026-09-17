@@ -1,5 +1,6 @@
 package com.fatih.futuresbot.presentation.dashboard
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +48,11 @@ import com.fatih.futuresbot.presentation.theme.TradeColors
 private const val ORDERS_ENABLED = false
 
 @Composable
-fun DashboardScreen(container: AppContainer, onOpenBot: () -> Unit) {
+fun DashboardScreen(
+    container: AppContainer,
+    onOpenBot: () -> Unit,
+    onPickSymbol: () -> Unit,
+) {
     val vm: DashboardViewModel = viewModel(factory = DashboardViewModel.factory(container))
     val state by vm.state.collectAsStateWithLifecycle()
     DashboardContent(
@@ -55,6 +60,7 @@ fun DashboardScreen(container: AppContainer, onOpenBot: () -> Unit) {
         onEmergencyStop = vm::emergencyStop,
         onResetEmergency = vm::resetEmergency,
         onOpenBot = onOpenBot,
+        onPickSymbol = onPickSymbol,
     )
 }
 
@@ -64,6 +70,7 @@ private fun DashboardContent(
     onEmergencyStop: () -> Unit,
     onResetEmergency: () -> Unit,
     onOpenBot: () -> Unit,
+    onPickSymbol: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
@@ -83,7 +90,10 @@ private fun DashboardContent(
                 )
                 ModeBadge(state.mode)
             }
-            ConnectionIndicator(state.connection)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                ConnectionIndicator(state.connection, "Borsa")
+                ConnectionIndicator(state.streamConnection, "Canlı veri")
+            }
             state.errorMessage?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = TradeColors.Accent)
             }
@@ -137,9 +147,12 @@ private fun DashboardContent(
 
             val sym = state.symbol
             SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.clickable(onClick = onPickSymbol),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        text = sym?.symbol ?: "—",
+                        text = (sym?.symbol ?: "—") + " ▾",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),

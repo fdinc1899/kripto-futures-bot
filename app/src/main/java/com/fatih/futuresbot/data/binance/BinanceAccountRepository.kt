@@ -7,6 +7,7 @@ import com.fatih.futuresbot.domain.model.ExchangeResult
 import com.fatih.futuresbot.domain.model.FuturesPosition
 import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.repository.AccountRepository
+import com.fatih.futuresbot.domain.repository.MarketRepository
 import com.fatih.futuresbot.security.CredentialStore
 import com.fatih.futuresbot.trading.ExchangeClient
 import java.time.LocalDate
@@ -22,18 +23,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 
 /**
- * Hesap ve fiyat verisini periyodik olarak çeker (REST).
- * Hata durumunda üstel bekleme uygular; Aşama 7'de fiyatlar WebSocket'e taşınacak.
+ * Hesap verisini REST ile periyodik çeker (hata olursa üstel bekleme).
+ * Fiyat verisi MarketRepository üzerinden WebSocket ile gelir.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class BinanceAccountRepository(
     private val client: ExchangeClient,
+    private val market: MarketRepository,
     private val credentialStore: CredentialStore,
     scope: CoroutineScope,
 ) : AccountRepository {
@@ -122,41 +126,45 @@ class BinanceAccountRepository(
         }
     }
 
-    override fun symbolSnapshot(symbol: String): Flow<SymbolSnapshot> = flow {
-        emit(SymbolSnapshot(symbol = symbol))
-        var leverage: Int? = null
+    override fun symbolSnapshot(symbol: String): Flow<SymbolSnapshot> = combine(
+        market.liveTicker(symbol),
+        _positions,
+        leverageFlow(symbol),
+    ) { ticker, positions, leverage ->
+        val p = positions.firstOrNull { it.symbol == symbol }
+        SymbolSnapshot(
+            symbol = symbol,
+            lastPrice = ticker.lastPrice,
+            change24hPercent = ticker.change24hPercent,
+            markPrice = ticker.markPrice,
+            fundingRate = ticker.fundingRate,
+            leverage = leverage,
+            positionAmt = p?.positionAmt,
+            entryPrice = p?.entryPrice,
+            margin = p?.initialMargin,
+            liquidationPrice = p?.liquidationPrice,
+            unrealizedPnl = p?.unrealizedPnl,
+        )
+    }.onStart { emit(SymbolSnapshot(symbol = symbol)) }
 
-        while (currentCoroutineContext().isActive) {
-            val ticker = client.ticker24h(symbol)
-            val mark = client.markPrice(symbol)
-
-            if (leverage == null && credentialStore.hasCredentials.value) {
-                val cfg = client.symbolConfig(symbol)
-                if (cfg is ExchangeResult.Ok) leverage = cfg.value.leverage
+    private fun leverageFlow(symbol: String): Flow<Int?> = credentialStore.hasCredentials
+        .flatMapLatest { hasKeys ->
+            flow {
+                emit(null)
+                if (hasKeys) {
+                    var attempt = 0
+                    while (currentCoroutineContext().isActive) {
+                        val cfg = client.symbolConfig(symbol)
+                        if (cfg is ExchangeResult.Ok) {
+                            emit(cfg.value.leverage)
+                            break
+                        }
+                        attempt++
+                        delay(min(5_000L * attempt, MAX_BACKOFF_MS))
+                    }
+                }
             }
-
-            val t = if (ticker is ExchangeResult.Ok) ticker.value else null
-            val m = if (mark is ExchangeResult.Ok) mark.value else null
-            val p = _positions.value.firstOrNull { it.symbol == symbol }
-
-            emit(
-                SymbolSnapshot(
-                    symbol = symbol,
-                    lastPrice = t?.lastPrice,
-                    change24hPercent = t?.priceChangePercent,
-                    markPrice = m?.markPrice,
-                    fundingRate = m?.lastFundingRate,
-                    leverage = leverage,
-                    positionAmt = p?.positionAmt,
-                    entryPrice = p?.entryPrice,
-                    margin = p?.initialMargin,
-                    liquidationPrice = p?.liquidationPrice,
-                    unrealizedPnl = p?.unrealizedPnl,
-                )
-            )
-            delay(if (t != null) TICKER_POLL_MS else TICKER_RETRY_MS)
         }
-    }
 
     private fun backoffMs(error: ExchangeError, failures: Int): Long {
         val exponential = min(ACCOUNT_POLL_MS * (1L shl min(failures, 4)), MAX_BACKOFF_MS)
@@ -169,8 +177,6 @@ class BinanceAccountRepository(
 
     private companion object {
         const val ACCOUNT_POLL_MS = 5_000L
-        const val TICKER_POLL_MS = 3_000L
-        const val TICKER_RETRY_MS = 10_000L
         const val INCOME_INTERVAL_MS = 60_000L
         const val MAX_BACKOFF_MS = 60_000L
 

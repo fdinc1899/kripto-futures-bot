@@ -40,8 +40,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.presentation.chart.ChartScreen
 import com.fatih.futuresbot.presentation.common.PlaceholderScreen
 import com.fatih.futuresbot.presentation.dashboard.DashboardScreen
+import com.fatih.futuresbot.presentation.markets.MarketsScreen
 import com.fatih.futuresbot.presentation.settings.SettingsScreen
 
 enum class Dest(val label: String, val icon: ImageVector) {
@@ -85,9 +87,13 @@ fun MainShell(container: AppContainer, onAddKeys: () -> Unit) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (current) {
-                Dest.DASHBOARD -> DashboardScreen(container, onOpenBot = { current = Dest.BOT })
-                Dest.MARKETS -> PlaceholderScreen("Markets", "Parite arama Aşama 7'de gelecek")
-                Dest.CHART -> PlaceholderScreen("Chart", "Mum grafik Aşama 7'de gelecek")
+                Dest.DASHBOARD -> DashboardScreen(
+                    container = container,
+                    onOpenBot = { current = Dest.BOT },
+                    onPickSymbol = { current = Dest.MARKETS },
+                )
+                Dest.MARKETS -> MarketsScreen(container, onSymbolSelected = { current = Dest.CHART })
+                Dest.CHART -> ChartScreen(container, onPickSymbol = { current = Dest.MARKETS })
                 Dest.POSITIONS -> PlaceholderScreen("Positions", "Açık pozisyonlar Aşama 8'de gelecek")
                 Dest.ORDERS -> PlaceholderScreen("Orders", "Emirler Aşama 8'de gelecek")
                 Dest.BOT -> PlaceholderScreen("Bot", "Bot paneli Aşama 11'de gelecek")

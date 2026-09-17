@@ -25,6 +25,7 @@ data class Ticker24h(
     val symbol: String,
     val lastPrice: Double,
     val priceChangePercent: Double,
+    val quoteVolume: Double = 0.0,
 )
 
 data class MarkPriceInfo(

@@ -2,11 +2,15 @@ package com.fatih.futuresbot.app
 
 import android.content.Context
 import com.fatih.futuresbot.data.binance.BinanceAccountRepository
+import com.fatih.futuresbot.data.binance.BinanceMarketRepository
+import com.fatih.futuresbot.data.settings.SelectedSymbolStore
 import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
 import com.fatih.futuresbot.domain.repository.AccountRepository
+import com.fatih.futuresbot.domain.repository.MarketRepository
 import com.fatih.futuresbot.network.HttpClientFactory
 import com.fatih.futuresbot.network.binance.BinanceFuturesClient
+import com.fatih.futuresbot.network.binance.BinanceMarketStream
 import com.fatih.futuresbot.security.CredentialStore
 import com.fatih.futuresbot.trading.ConnectionTester
 import com.fatih.futuresbot.trading.ExchangeClient
@@ -22,6 +26,7 @@ class AppContainer(context: Context) {
 
     val credentialStore = CredentialStore(appContext)
     val tradingModeStore = TradingModeStore(appContext)
+    val selectedSymbolStore = SelectedSymbolStore(appContext)
 
     private val httpClient = HttpClientFactory.create()
 
@@ -32,8 +37,16 @@ class AppContainer(context: Context) {
         credentialsProvider = { credentialStore.load() },
     )
 
-    val accountRepository: AccountRepository =
-        BinanceAccountRepository(exchangeClient, credentialStore, appScope)
+    private val marketStream = BinanceMarketStream(httpClient, ExchangeEnvironment.TESTNET)
+
+    val marketRepository: MarketRepository = BinanceMarketRepository(exchangeClient, marketStream)
+
+    val accountRepository: AccountRepository = BinanceAccountRepository(
+        client = exchangeClient,
+        market = marketRepository,
+        credentialStore = credentialStore,
+        scope = appScope,
+    )
 
     val connectionTester = ConnectionTester(exchangeClient)
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.data.settings.SelectedSymbolStore
 import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.AccountSummary
 import com.fatih.futuresbot.domain.model.BotStatus
@@ -12,6 +13,7 @@ import com.fatih.futuresbot.domain.model.ConnectionState
 import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
+import com.fatih.futuresbot.domain.repository.MarketRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.stateIn
 data class DashboardUiState(
     val mode: TradingMode = TradingMode.TESTNET,
     val connection: ConnectionState = ConnectionState.DISCONNECTED,
+    val streamConnection: ConnectionState = ConnectionState.DISCONNECTED,
     val errorMessage: String? = null,
     val account: AccountSummary? = null,
     val symbol: SymbolSnapshot? = null,
@@ -30,31 +33,40 @@ data class DashboardUiState(
     val emergencyStopped: Boolean = false,
 )
 
+private data class ConnectionInfo(
+    val rest: ConnectionState,
+    val stream: ConnectionState,
+    val error: String?,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(
     accountRepository: AccountRepository,
+    marketRepository: MarketRepository,
     modeStore: TradingModeStore,
+    symbolStore: SelectedSymbolStore,
 ) : ViewModel() {
 
-    private val selectedSymbol = MutableStateFlow("BTCUSDT")
     private val emergency = MutableStateFlow(false)
 
     private val connectionInfo = combine(
         accountRepository.connection,
+        marketRepository.streamState,
         accountRepository.lastError,
-    ) { connection, error -> connection to error?.userMessage }
+    ) { rest, stream, error -> ConnectionInfo(rest, stream, error?.userMessage) }
 
     val state: StateFlow<DashboardUiState> = combine(
         modeStore.mode,
         connectionInfo,
         accountRepository.accountSummary(),
-        selectedSymbol.flatMapLatest { accountRepository.symbolSnapshot(it) },
+        symbolStore.symbol.flatMapLatest { accountRepository.symbolSnapshot(it) },
         emergency,
     ) { mode, conn, account, symbol, emergencyStopped ->
         DashboardUiState(
             mode = mode,
-            connection = conn.first,
-            errorMessage = conn.second,
+            connection = conn.rest,
+            streamConnection = conn.stream,
+            errorMessage = conn.error,
             account = account,
             symbol = symbol,
             botStatus = BotStatus.STOPPED,
@@ -74,7 +86,12 @@ class DashboardViewModel(
     companion object {
         fun factory(container: AppContainer) = viewModelFactory {
             initializer {
-                DashboardViewModel(container.accountRepository, container.tradingModeStore)
+                DashboardViewModel(
+                    accountRepository = container.accountRepository,
+                    marketRepository = container.marketRepository,
+                    modeStore = container.tradingModeStore,
+                    symbolStore = container.selectedSymbolStore,
+                )
             }
         }
     }

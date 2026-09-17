@@ -1,5 +1,6 @@
 package com.fatih.futuresbot.network.binance
 
+import com.fatih.futuresbot.domain.model.Candle
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
 import com.fatih.futuresbot.domain.model.ExchangeError
 import com.fatih.futuresbot.domain.model.ExchangeResult
@@ -21,7 +22,7 @@ import kotlinx.serialization.json.JsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/** Binance USDⓈ-M Futures REST istemcisi. Şimdilik yalnızca okuma (GET) işlemleri. */
+/** Binance USDⓈ-M Futures REST istemcisi. Şimdilik yalnızca okuma (GET) işlemleri; emirler Aşama 8'de. */
 class BinanceFuturesClient(
     override val environment: ExchangeEnvironment,
     private val http: OkHttpClient,
@@ -55,13 +56,50 @@ class BinanceFuturesClient(
 
     override suspend fun ticker24h(symbol: String): ExchangeResult<Ticker24h> =
         publicGet("/fapi/v1/ticker/24hr", listOf("symbol" to symbol)).mapOk { el ->
-            val o = el.objOrNull() ?: return@mapOk null
-            Ticker24h(
-                symbol = o.str("symbol") ?: symbol,
-                lastPrice = o.dbl("lastPrice") ?: return@mapOk null,
-                priceChangePercent = o.dbl("priceChangePercent") ?: 0.0,
-            )
+            el.objOrNull()?.let { parseTicker(it, symbol) }
         }
+
+    override suspend fun allTickers(): ExchangeResult<List<Ticker24h>> =
+        publicGet("/fapi/v1/ticker/24hr").mapOk { el ->
+            (el as? JsonArray)?.mapNotNull { item ->
+                (item as? JsonObject)?.let { parseTicker(it, null) }
+            }
+        }
+
+    override suspend fun klines(
+        symbol: String,
+        interval: String,
+        limit: Int,
+    ): ExchangeResult<List<Candle>> =
+        publicGet(
+            "/fapi/v1/klines",
+            listOf("symbol" to symbol, "interval" to interval, "limit" to limit.toString()),
+        ).mapOk { el ->
+            val now = System.currentTimeMillis()
+            (el as? JsonArray)?.mapNotNull { row ->
+                val r = row as? JsonArray ?: return@mapNotNull null
+                Candle(
+                    openTime = r.textAt(0)?.toLongOrNull() ?: return@mapNotNull null,
+                    open = r.textAt(1)?.toDoubleOrNull() ?: return@mapNotNull null,
+                    high = r.textAt(2)?.toDoubleOrNull() ?: return@mapNotNull null,
+                    low = r.textAt(3)?.toDoubleOrNull() ?: return@mapNotNull null,
+                    close = r.textAt(4)?.toDoubleOrNull() ?: return@mapNotNull null,
+                    volume = r.textAt(5)?.toDoubleOrNull() ?: 0.0,
+                    closed = (r.textAt(6)?.toLongOrNull() ?: Long.MAX_VALUE) < now,
+                )
+            }
+        }
+
+    private fun parseTicker(o: JsonObject, fallbackSymbol: String?): Ticker24h? {
+        val symbol = o.str("symbol") ?: fallbackSymbol ?: return null
+        val last = o.dbl("lastPrice") ?: return null
+        return Ticker24h(
+            symbol = symbol,
+            lastPrice = last,
+            priceChangePercent = o.dbl("priceChangePercent") ?: 0.0,
+            quoteVolume = o.dbl("quoteVolume") ?: 0.0,
+        )
+    }
 
     override suspend fun markPrice(symbol: String): ExchangeResult<MarkPriceInfo> =
         publicGet("/fapi/v1/premiumIndex", listOf("symbol" to symbol)).mapOk { el ->

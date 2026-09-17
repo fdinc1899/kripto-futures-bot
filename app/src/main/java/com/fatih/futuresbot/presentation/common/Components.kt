@@ -84,12 +84,13 @@ fun ModeBadge(mode: TradingMode) {
 }
 
 @Composable
-fun ConnectionIndicator(state: ConnectionState) {
-    val (label, color) = when (state) {
-        ConnectionState.CONNECTED -> "Borsa: bağlı" to TradeColors.Long
-        ConnectionState.CONNECTING -> "Borsa: bağlanıyor" to TradeColors.Accent
-        ConnectionState.DISCONNECTED -> "Borsa: bağlı değil" to TradeColors.Short
+fun ConnectionIndicator(state: ConnectionState, title: String) {
+    val (status, color) = when (state) {
+        ConnectionState.CONNECTED -> "bağlı" to TradeColors.Long
+        ConnectionState.CONNECTING -> "bağlanıyor" to TradeColors.Accent
+        ConnectionState.DISCONNECTED -> "bağlı değil" to TradeColors.Short
     }
+    val label = "$title: $status"
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).background(color, CircleShape))
         Spacer(Modifier.width(6.dp))

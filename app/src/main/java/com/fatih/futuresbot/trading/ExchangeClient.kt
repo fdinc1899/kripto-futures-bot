@@ -1,5 +1,6 @@
 package com.fatih.futuresbot.trading
 
+import com.fatih.futuresbot.domain.model.Candle
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
 import com.fatih.futuresbot.domain.model.ExchangeResult
 import com.fatih.futuresbot.domain.model.FuturesBalance
@@ -20,6 +21,8 @@ interface ExchangeClient {
     /** Sunucu ile yerel saat farkını (ms) ölçer ve imzalı isteklerde kullanır. */
     suspend fun syncServerTime(): ExchangeResult<Long>
     suspend fun ticker24h(symbol: String): ExchangeResult<Ticker24h>
+    suspend fun allTickers(): ExchangeResult<List<Ticker24h>>
+    suspend fun klines(symbol: String, interval: String, limit: Int): ExchangeResult<List<Candle>>
     suspend fun markPrice(symbol: String): ExchangeResult<MarkPriceInfo>
     suspend fun balance(): ExchangeResult<FuturesBalance>
     suspend fun positions(): ExchangeResult<List<FuturesPosition>>
