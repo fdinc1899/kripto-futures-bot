@@ -119,7 +119,8 @@ class BinanceMarketRepository(
             is ExchangeResult.Err -> ExchangeResult.Err(r.error)
         }
 
-    private fun parseKline(k: JsonObject): Candle? = Candle(
+    private fun parseKline(k: JsonObject): Candle? {
+        return Candle(
         openTime = k.lng("t") ?: return null,
         open = k.dbl("o") ?: return null,
         high = k.dbl("h") ?: return null,
@@ -127,7 +128,8 @@ class BinanceMarketRepository(
         close = k.dbl("c") ?: return null,
         volume = k.dbl("v") ?: 0.0,
         closed = k.str("x") == "true",
-    )
+        )
+    }
 
     private fun merge(series: List<Candle>, candle: Candle): List<Candle> {
         val last = series.lastOrNull() ?: return listOf(candle)
