@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.FuturesBot" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg_dark</item>
+    </style>
+</resources>
