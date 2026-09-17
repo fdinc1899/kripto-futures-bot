@@ -21,7 +21,27 @@ jobs:
           gradle-version: '8.9'
 
       - name: Debug APK derle
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon 2>&1 | tee build.log
+
+      - name: Derleme hatalarini goster
+        if: failure()
+        run: |
+          PREFIX="file:///home/runner/work/${GITHUB_REPOSITORY#*/}/${GITHUB_REPOSITORY#*/}/app/src/main/java/com/fatih/futuresbot/"
+          grep -E '^e: ' build.log | sed "s#${PREFIX}##" | head -15 > errors.txt || true
+          if [ ! -s errors.txt ]; then
+            grep -A3 'What went wrong' build.log | head -15 > errors.txt || true
+          fi
+          {
+            echo "## Derleme hatalari"
+            echo '```'
+            cat errors.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then echo "::error::${line}"; fi
+          done < errors.txt
 
       - uses: actions/upload-artifact@v6
         with:

@@ -149,7 +149,7 @@ class BinanceAccountRepository(
 
     private fun leverageFlow(symbol: String): Flow<Int?> = credentialStore.hasCredentials
         .flatMapLatest { hasKeys ->
-            flow {
+            flow<Int?> {
                 emit(null)
                 if (hasKeys) {
                     var attempt = 0
