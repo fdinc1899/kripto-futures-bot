@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.stateIn
 data class DashboardUiState(
     val mode: TradingMode = TradingMode.TESTNET,
     val connection: ConnectionState = ConnectionState.DISCONNECTED,
+    val errorMessage: String? = null,
     val account: AccountSummary? = null,
     val symbol: SymbolSnapshot? = null,
     val botStatus: BotStatus = BotStatus.STOPPED,
@@ -38,16 +39,22 @@ class DashboardViewModel(
     private val selectedSymbol = MutableStateFlow("BTCUSDT")
     private val emergency = MutableStateFlow(false)
 
+    private val connectionInfo = combine(
+        accountRepository.connection,
+        accountRepository.lastError,
+    ) { connection, error -> connection to error?.userMessage }
+
     val state: StateFlow<DashboardUiState> = combine(
         modeStore.mode,
-        accountRepository.connection,
+        connectionInfo,
         accountRepository.accountSummary(),
         selectedSymbol.flatMapLatest { accountRepository.symbolSnapshot(it) },
         emergency,
-    ) { mode, connection, account, symbol, emergencyStopped ->
+    ) { mode, conn, account, symbol, emergencyStopped ->
         DashboardUiState(
             mode = mode,
-            connection = connection,
+            connection = conn.first,
+            errorMessage = conn.second,
             account = account,
             symbol = symbol,
             botStatus = BotStatus.STOPPED,

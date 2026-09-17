@@ -13,10 +13,19 @@ android {
         applicationId = "com.fatih.futuresbot"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // GÜVENLİK: gerçek para modu derleme düzeyinde KAPALI (Aşama 15'te açılacak)
         buildConfigField("boolean", "REAL_TRADING_AVAILABLE", "false")
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -60,7 +69,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    // Aşama 5-7 (REST + WebSocket) için şimdiden eklendi
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

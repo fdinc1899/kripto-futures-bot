@@ -84,6 +84,9 @@ private fun DashboardContent(
                 ModeBadge(state.mode)
             }
             ConnectionIndicator(state.connection)
+            state.errorMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = TradeColors.Accent)
+            }
 
             if (state.emergencyStopped) {
                 Card(
@@ -112,14 +115,23 @@ private fun DashboardContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = Fmt.usdt(acc?.totalBalance),
+                    text = Fmt.usdt(acc?.walletBalance),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                 )
+                StatRow("Marjin bakiyesi", Fmt.usdt(acc?.marginBalance))
                 StatRow("Kullanılabilir", Fmt.usdt(acc?.availableBalance))
-                StatRow("Günlük PNL", Fmt.signedUsdt(acc?.dailyPnl), pnlColor(acc?.dailyPnl))
+                StatRow(
+                    "Günlük gerçekleşen PNL",
+                    Fmt.signedUsdt(acc?.dailyRealizedPnl),
+                    pnlColor(acc?.dailyRealizedPnl),
+                )
                 StatRow("Günlük %", Fmt.pct(acc?.dailyPnlPercent), pnlColor(acc?.dailyPnlPercent))
-                StatRow("Toplam PNL", Fmt.signedUsdt(acc?.totalPnl), pnlColor(acc?.totalPnl))
+                StatRow(
+                    "Gerçekleşmemiş PNL",
+                    Fmt.signedUsdt(acc?.unrealizedPnl),
+                    pnlColor(acc?.unrealizedPnl),
+                )
                 StatRow("Açık pozisyon", acc?.openPositions?.toString() ?: "—")
             }
 
@@ -139,9 +151,28 @@ private fun DashboardContent(
                     )
                 }
                 Text(Fmt.price(sym?.lastPrice), style = MaterialTheme.typography.headlineSmall)
-                StatRow("Kaldıraç", sym?.let { "${it.leverage}x" } ?: "—")
-                StatRow("Margin", Fmt.usdt(sym?.margin))
-                StatRow("Likidasyon fiyatı", Fmt.price(sym?.liquidationPrice))
+                StatRow("Mark fiyatı", Fmt.price(sym?.markPrice))
+                StatRow("Funding oranı", Fmt.funding(sym?.fundingRate))
+                StatRow("Kaldıraç", sym?.leverage?.let { "${it}x" } ?: "—")
+
+                val amt = sym?.positionAmt
+                val positionText = when {
+                    amt == null -> "Yok"
+                    amt > 0 -> "LONG " + Fmt.qty(amt)
+                    else -> "SHORT " + Fmt.qty(-amt)
+                }
+                val positionColor = when {
+                    amt == null -> Color.Unspecified
+                    amt > 0 -> TradeColors.Long
+                    else -> TradeColors.Short
+                }
+                StatRow("Pozisyon", positionText, positionColor)
+                if (amt != null) {
+                    StatRow("Giriş fiyatı", Fmt.price(sym?.entryPrice))
+                    StatRow("Margin", Fmt.usdt(sym?.margin))
+                    StatRow("Likidasyon fiyatı", Fmt.price(sym?.liquidationPrice))
+                    StatRow("Pozisyon PNL", Fmt.signedUsdt(sym?.unrealizedPnl), pnlColor(sym?.unrealizedPnl))
+                }
             }
 
             SectionCard {

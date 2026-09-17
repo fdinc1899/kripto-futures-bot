@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -25,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.presentation.common.SectionCard
@@ -32,9 +35,12 @@ import com.fatih.futuresbot.presentation.common.StatRow
 import com.fatih.futuresbot.presentation.theme.TradeColors
 
 @Composable
-fun SettingsScreen(container: AppContainer) {
+fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
+    val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
     val hasKeys by container.credentialStore.hasCredentials.collectAsStateWithLifecycle()
     val mode by container.tradingModeStore.mode.collectAsStateWithLifecycle()
+    val testing by vm.testing.collectAsStateWithLifecycle()
+    val results by vm.results.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
 
     Column(
@@ -52,7 +58,42 @@ fun SettingsScreen(container: AppContainer) {
                 if (mode == TradingMode.TESTNET) "TESTNET / DEMO" else "GERÇEK",
                 if (mode == TradingMode.TESTNET) TradeColors.Accent else TradeColors.Short,
             )
+            StatRow("Sunucu", vm.serverHost)
             StatRow("API anahtarı", if (hasKeys) "Şifreli kayıtlı" else "Yok")
+            if (!hasKeys) {
+                Button(onClick = onAddKeys, modifier = Modifier.fillMaxWidth()) {
+                    Text("API anahtarı ekle")
+                }
+            }
+        }
+
+        SectionCard {
+            Text("Bağlantı testi", fontWeight = FontWeight.Bold)
+            Button(
+                onClick = vm::runTest,
+                enabled = !testing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (testing) "Test ediliyor…" else "Bağlantıyı test et")
+            }
+            results.forEach { step ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        text = if (step.ok) "✓" else "✗",
+                        color = if (step.ok) TradeColors.Long else TradeColors.Short,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(24.dp),
+                    )
+                    Column {
+                        Text(step.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = step.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
 
         SectionCard {

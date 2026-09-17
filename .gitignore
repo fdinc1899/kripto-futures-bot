@@ -3,6 +3,7 @@ build/
 local.properties
 *.jks
 *.keystore
+!app/debug.keystore
 .idea/
 *.iml
 captures/

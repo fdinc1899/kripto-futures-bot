@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
                     var demoWithoutKeys by rememberSaveable { mutableStateOf(false) }
 
                     if (hasKeys || demoWithoutKeys) {
-                        MainShell(container)
+                        MainShell(container, onAddKeys = { demoWithoutKeys = false })
                     } else {
                         ApiKeyScreen(container, onSkip = { demoWithoutKeys = true })
                     }

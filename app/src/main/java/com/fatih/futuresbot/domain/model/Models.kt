@@ -14,20 +14,26 @@ enum class BotStatus(val label: String) {
 }
 
 data class AccountSummary(
-    val totalBalance: Double,
+    val walletBalance: Double,
+    val marginBalance: Double,
     val availableBalance: Double,
-    val dailyPnl: Double,
-    val totalPnl: Double,
+    val unrealizedPnl: Double,
+    val dailyRealizedPnl: Double,
     val dailyPnlPercent: Double,
     val openPositions: Int,
 )
 
-/** Fiyat alanları null ise veri henüz gelmemiştir; UI "—" gösterir. */
+/** null alanlar: veri henüz gelmedi ya da o paritede pozisyon yok. */
 data class SymbolSnapshot(
     val symbol: String,
-    val lastPrice: Double?,
-    val change24hPercent: Double?,
-    val leverage: Int,
-    val margin: Double,
-    val liquidationPrice: Double?,
+    val lastPrice: Double? = null,
+    val change24hPercent: Double? = null,
+    val markPrice: Double? = null,
+    val fundingRate: Double? = null,
+    val leverage: Int? = null,
+    val positionAmt: Double? = null,
+    val entryPrice: Double? = null,
+    val margin: Double? = null,
+    val liquidationPrice: Double? = null,
+    val unrealizedPnl: Double? = null,
 )

@@ -60,7 +60,7 @@ private val BOTTOM_ITEMS = listOf(Dest.DASHBOARD, Dest.MARKETS, Dest.CHART, Dest
 private val MORE_ITEMS = listOf(Dest.POSITIONS, Dest.ORDERS, Dest.HISTORY, Dest.SETTINGS)
 
 @Composable
-fun MainShell(container: AppContainer) {
+fun MainShell(container: AppContainer, onAddKeys: () -> Unit) {
     var current by rememberSaveable { mutableStateOf(Dest.DASHBOARD) }
     val selectedBottom = if (current in BOTTOM_ITEMS) current else Dest.MORE
 
@@ -92,7 +92,7 @@ fun MainShell(container: AppContainer) {
                 Dest.ORDERS -> PlaceholderScreen("Orders", "Emirler Aşama 8'de gelecek")
                 Dest.BOT -> PlaceholderScreen("Bot", "Bot paneli Aşama 11'de gelecek")
                 Dest.HISTORY -> PlaceholderScreen("History", "İşlem geçmişi Aşama 12'de gelecek")
-                Dest.SETTINGS -> SettingsScreen(container)
+                Dest.SETTINGS -> SettingsScreen(container, onAddKeys = onAddKeys)
                 Dest.MORE -> MoreScreen(onOpen = { current = it })
             }
         }
