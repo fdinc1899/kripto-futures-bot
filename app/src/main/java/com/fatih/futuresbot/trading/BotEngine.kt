@@ -20,6 +20,7 @@ import com.fatih.futuresbot.domain.model.StrategySignal
 import com.fatih.futuresbot.domain.model.TradeOrigin
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.domain.repository.MarketRepository
+import com.fatih.futuresbot.notifications.Notifier
 import com.fatih.futuresbot.strategy.StrategyEngine
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +62,7 @@ class BotEngine(
     private val orderManager: OrderManager,
     private val guard: TradingGuard,
     private val client: ExchangeClient,
+    private val notifier: Notifier,
     private val scope: CoroutineScope,
 ) {
     private val _status = MutableStateFlow(BotStatus.STOPPED)
@@ -138,6 +140,11 @@ class BotEngine(
     private suspend fun process(ctx: BotContext, signal: StrategySignal) {
         val side = if (signal.direction == SignalDirection.LONG) PositionSide.LONG else PositionSide.SHORT
         log(BotLogLevel.INFO, "${ctx.symbol} ${side.name} sinyali · ${ctx.config.interval.code}")
+        notifier.bot(
+            "${ctx.symbol} ${side.name} sinyali",
+            "${ctx.config.interval.code} · " +
+                if (ctx.settings.autoTrade) "emir gönderiliyor" else "yalnızca sinyal modu",
+        )
 
         if (guard.emergencyStopped.value) {
             log(BotLogLevel.WARN, "Acil durdurma aktif — emir gönderilmedi")
@@ -195,7 +202,10 @@ class BotEngine(
                         tradesToday++
                         log(BotLogLevel.OK, result.message)
                     }
-                    is ActionResult.Failure -> log(BotLogLevel.ERROR, result.message)
+                    is ActionResult.Failure -> {
+                        log(BotLogLevel.ERROR, result.message)
+                        notifier.alert("${ctx.symbol} emir başarısız", result.message)
+                    }
                 }
                 stopIfDailyLossLimitReached()
             }
@@ -212,6 +222,7 @@ class BotEngine(
         if (!RiskEngine.dailyLimitReached(settings, daily.value, balance.value.walletBalance)) return false
         botSettingsStore.setEnabled(false)
         _status.value = BotStatus.STOPPED
+        notifier.alert("Günlük zarar limiti", "Limit doldu — bot durduruldu")
         log(
             BotLogLevel.ERROR,
             "Günlük zarar limiti doldu (%" +

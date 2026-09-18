@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.data.settings.NotificationSettingsStore
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.trading.ConnectionTestStep
+import com.fatih.futuresbot.notifications.Notifier
 import com.fatih.futuresbot.trading.ConnectionTester
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +47,32 @@ class SettingsViewModel(
     private val tester: ConnectionTester,
     val serverHost: String,
     private val riskStore: RiskSettingsStore,
+    private val notificationStore: NotificationSettingsStore,
+    private val notifier: Notifier,
 ) : ViewModel() {
+
+    val notificationsEnabled: StateFlow<Boolean> = notificationStore.enabled
+
+    private val _notificationMessage = MutableStateFlow<String?>(null)
+    val notificationMessage: StateFlow<String?> = _notificationMessage.asStateFlow()
+
+    fun setNotificationsEnabled(value: Boolean) {
+        notificationStore.setEnabled(value)
+        _notificationMessage.value = if (value) "Bildirimler açık" else "Bildirimler kapalı"
+    }
+
+    fun sendTestNotification() {
+        if (!notifier.hasPermission()) {
+            _notificationMessage.value = "Bildirim izni yok — Android ayarlarından izin ver"
+            return
+        }
+        if (!notificationStore.enabled.value) {
+            _notificationMessage.value = "Önce bildirimleri aç"
+            return
+        }
+        notifier.trade("Test bildirimi", "Bildirimler çalışıyor")
+        _notificationMessage.value = "Test bildirimi gönderildi"
+    }
 
     private val _riskForm = MutableStateFlow(riskStore.settings.value.toForm())
     val riskForm: StateFlow<RiskForm> = _riskForm.asStateFlow()
@@ -104,6 +131,8 @@ class SettingsViewModel(
                     tester = container.connectionTester,
                     serverHost = container.exchangeClient.endpointLabel,
                     riskStore = container.riskSettingsStore,
+                    notificationStore = container.notificationSettingsStore,
+                    notifier = container.notifier,
                 )
             }
         }

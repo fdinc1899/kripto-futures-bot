@@ -46,6 +46,8 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
     val testing by vm.testing.collectAsStateWithLifecycle()
     val riskForm by vm.riskForm.collectAsStateWithLifecycle()
     val riskSaved by vm.riskSaved.collectAsStateWithLifecycle()
+    val notificationsEnabled by vm.notificationsEnabled.collectAsStateWithLifecycle()
+    val notificationMessage by vm.notificationMessage.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -99,6 +101,26 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
                         )
                     }
                 }
+            }
+        }
+
+        SectionCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Bildirimler", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Pozisyon açma/kapanma, SL/TP, bot sinyali ve bağlantı uyarıları",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = notificationsEnabled, onCheckedChange = vm::setNotificationsEnabled)
+            }
+            OutlinedButton(onClick = vm::sendTestNotification, modifier = Modifier.fillMaxWidth()) {
+                Text("Test bildirimi gönder")
+            }
+            notificationMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = TradeColors.Accent)
             }
         }
 

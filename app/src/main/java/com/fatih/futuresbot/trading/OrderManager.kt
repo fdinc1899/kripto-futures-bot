@@ -18,6 +18,7 @@ import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.domain.model.SizingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
+import com.fatih.futuresbot.notifications.Notifier
 import java.time.LocalDate
 import java.time.ZoneId
 import java.math.BigDecimal
@@ -117,6 +118,7 @@ class OrderManager(
     private val planStore: ProtectionPlanStore,
     private val riskStore: RiskSettingsStore,
     private val historyStore: TradeHistoryStore,
+    private val notifier: Notifier,
 ) {
     private val mutex = Mutex()
     @Volatile private var lastSubmitKey: String? = null
@@ -814,6 +816,7 @@ class OrderManager(
                 else -> ""
             }
             steps.add(StepLog("Stop-Loss yerleştirilemedi: $reason", false))
+            notifier.alert("$symbol Stop-Loss yerleştirilemedi", "Pozisyon güvenlik için kapatılıyor")
             steps.add(StepLog("GÜVENLİK: SL'siz pozisyon bırakılmaz, pozisyon kapatılıyor…", false))
             val closed = closePositionInternal(symbol, steps)
             val message = if (closed) {
@@ -824,6 +827,11 @@ class OrderManager(
             return ActionResult.Failure(steps.toList(), message)
         }
         steps.ok("Stop-Loss aktif @ ${stopLoss.toPlainString()} (mark fiyatı)")
+        notifier.trade(
+            "$symbol ${side.name} açıldı",
+            "Stop-Loss ${stopLoss.toPlainString()}" +
+                (takeProfit?.let { " · Take-Profit ${it.toPlainString()}" } ?: ""),
+        )
 
         if (settings.trailingStopEnabled && positionQuantity.signum() > 0) {
             val trailingQty = quantityForStep(symbol, positionQuantity)
