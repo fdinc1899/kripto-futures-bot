@@ -17,6 +17,7 @@ import com.fatih.futuresbot.domain.model.SignalDirection
 import com.fatih.futuresbot.domain.model.SizingMode
 import com.fatih.futuresbot.domain.model.StrategyConfig
 import com.fatih.futuresbot.domain.model.StrategySignal
+import com.fatih.futuresbot.domain.model.TradeOrigin
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.domain.repository.MarketRepository
 import com.fatih.futuresbot.strategy.StrategyEngine
@@ -173,6 +174,9 @@ class BotEngine(
             marginUsdt = 0.0,
             stopLossPercent = risk.defaultStopLossPercent,
             takeProfitPercent = risk.defaultTakeProfitPercent,
+            origin = TradeOrigin.BOT,
+            reason = "Bot sinyali · ${ctx.config.interval.code} · ${side.name}",
+            signals = signal.checks.map { "${it.name}: ${it.detail}" },
         )
         when (val preview = orderManager.preview(intent)) {
             is PreviewResult.Rejected -> log(

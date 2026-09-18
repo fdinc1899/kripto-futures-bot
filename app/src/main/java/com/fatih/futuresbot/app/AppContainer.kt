@@ -3,6 +3,7 @@ package com.fatih.futuresbot.app
 import android.content.Context
 import com.fatih.futuresbot.data.binance.BinanceAccountRepository
 import com.fatih.futuresbot.data.binance.BinanceMarketRepository
+import com.fatih.futuresbot.data.history.TradeHistoryStore
 import com.fatih.futuresbot.data.settings.BotSettingsStore
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.data.settings.SelectedSymbolStore
@@ -18,6 +19,7 @@ import com.fatih.futuresbot.security.CredentialStore
 import com.fatih.futuresbot.trading.ConnectionTester
 import com.fatih.futuresbot.trading.BotEngine
 import com.fatih.futuresbot.trading.ExchangeClient
+import com.fatih.futuresbot.trading.HistorySync
 import com.fatih.futuresbot.trading.OrderManager
 import com.fatih.futuresbot.trading.ProtectionPlanStore
 import com.fatih.futuresbot.trading.TradingGuard
@@ -37,6 +39,7 @@ class AppContainer(context: Context) {
     val riskSettingsStore = RiskSettingsStore(appContext)
     val strategyStore = StrategyStore(appContext)
     val botSettingsStore = BotSettingsStore(appContext)
+    val tradeHistoryStore = TradeHistoryStore(appContext, appScope)
 
     private val httpClient = HttpClientFactory.create()
 
@@ -68,7 +71,10 @@ class AppContainer(context: Context) {
         guard = tradingGuard,
         planStore = ProtectionPlanStore(appContext),
         riskStore = riskSettingsStore,
+        historyStore = tradeHistoryStore,
     ).also { it.startProtectionWatcher(appScope, credentialStore.hasCredentials) }
+
+    val historySync = HistorySync(exchangeClient, tradeHistoryStore)
 
     val botEngine = BotEngine(
         botSettingsStore = botSettingsStore,

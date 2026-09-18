@@ -10,6 +10,10 @@ import com.fatih.futuresbot.domain.model.NewOrderRequest
 import com.fatih.futuresbot.domain.model.OrderInfo
 import com.fatih.futuresbot.domain.model.OrderType
 import com.fatih.futuresbot.domain.model.PositionSide
+import com.fatih.futuresbot.domain.model.TradeOrigin
+import com.fatih.futuresbot.domain.model.TradeRecord
+import com.fatih.futuresbot.domain.model.TradeStatus
+import com.fatih.futuresbot.data.history.TradeHistoryStore
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.domain.model.SizingMode
@@ -47,6 +51,11 @@ data class OrderIntent(
     /** Giriş fiyatına göre fiyat değişim yüzdesi */
     val stopLossPercent: Double,
     val takeProfitPercent: Double?,
+    val origin: TradeOrigin = TradeOrigin.MANUAL,
+    /** İşlemin açılma nedeni (bot sinyali vb.) */
+    val reason: String = "",
+    /** Sinyal anındaki indikatör değerleri */
+    val signals: List<String> = emptyList(),
 )
 
 data class OrderPreview(
@@ -107,6 +116,7 @@ class OrderManager(
     private val guard: TradingGuard,
     private val planStore: ProtectionPlanStore,
     private val riskStore: RiskSettingsStore,
+    private val historyStore: TradeHistoryStore,
 ) {
     private val mutex = Mutex()
     @Volatile private var lastSubmitKey: String? = null
@@ -484,6 +494,7 @@ class OrderManager(
                     steps.add(StepLog("Emir kısmen doldu; kalan kısım iptal edildi.", false))
                 }
                 steps.ok("Giriş: ${qtyText(order.executedQty)} @ ${num(order.avgPrice)}")
+                recordTrade(preview, order)
                 protectOrRollback(
                     steps,
                     symbol,
@@ -496,6 +507,7 @@ class OrderManager(
             OrderType.LIMIT -> when (order.status) {
                 "FILLED", "PARTIALLY_FILLED" -> {
                     steps.ok("Limit emir doldu (${order.status})")
+                    recordTrade(preview, order)
                     protectOrRollback(
                         steps,
                         symbol,
@@ -919,6 +931,37 @@ class OrderManager(
                 steps.add(StepLog("Kapanış doğrulanamadı: ${r.error.userMessage}", false))
                 false
             }
+        }
+    }
+
+    /** Açılan pozisyonu işlem geçmişine yazar. */
+    private suspend fun recordTrade(preview: OrderPreview, order: OrderInfo) {
+        val intent = preview.intent
+        val entry = if (order.avgPrice > 0.0) order.avgPrice else preview.entryPrice.toDouble()
+        val quantity = if (order.executedQty > 0.0) order.executedQty else preview.quantity.toDouble()
+        val notional = entry * quantity
+        runCatching {
+            historyStore.add(
+                TradeRecord(
+                    id = preview.clientOrderId,
+                    symbol = intent.symbol,
+                    side = intent.side.name,
+                    origin = intent.origin.name,
+                    openTime = if (order.time > 0L) order.time else System.currentTimeMillis(),
+                    entryPrice = entry,
+                    quantity = quantity,
+                    leverage = intent.leverage,
+                    notional = notional,
+                    margin = if (intent.leverage > 0) notional / intent.leverage else notional,
+                    stopLoss = preview.stopLossPrice.toDouble(),
+                    takeProfit = preview.takeProfitPrice?.toDouble(),
+                    status = TradeStatus.OPEN.name,
+                    reason = intent.reason.ifBlank {
+                        if (intent.origin == TradeOrigin.BOT) "Bot sinyali" else "Elle açıldı"
+                    },
+                    signals = intent.signals,
+                )
+            )
         }
     }
 

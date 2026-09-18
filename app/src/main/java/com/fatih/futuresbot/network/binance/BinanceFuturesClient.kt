@@ -6,6 +6,7 @@ import com.fatih.futuresbot.domain.model.ConditionalOrderRequest
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
 import com.fatih.futuresbot.domain.model.ExchangeError
 import com.fatih.futuresbot.domain.model.ExchangeResult
+import com.fatih.futuresbot.domain.model.Fill
 import com.fatih.futuresbot.domain.model.FuturesBalance
 import com.fatih.futuresbot.domain.model.FuturesPosition
 import com.fatih.futuresbot.domain.model.MarkPriceInfo
@@ -180,6 +181,27 @@ class BinanceFuturesClient(
             (el as? JsonArray)?.sumOf { item -> (item as? JsonObject)?.dbl("income") ?: 0.0 }
         }
 
+
+    override suspend fun userTrades(symbol: String, startTimeMs: Long): ExchangeResult<List<Fill>> =
+        signedGet(
+            "/fapi/v1/userTrades",
+            listOf("symbol" to symbol, "startTime" to startTimeMs.toString(), "limit" to "500"),
+        ).mapOk { el ->
+            (el as? JsonArray)?.mapNotNull { item ->
+                val o = item as? JsonObject ?: return@mapNotNull null
+                Fill(
+                    symbol = o.str("symbol") ?: symbol,
+                    id = o.lng("id") ?: 0L,
+                    orderId = o.lng("orderId") ?: 0L,
+                    side = o.str("side").orEmpty(),
+                    price = o.dbl("price") ?: return@mapNotNull null,
+                    quantity = o.dbl("qty") ?: 0.0,
+                    realizedPnl = o.dbl("realizedPnl") ?: 0.0,
+                    commission = o.dbl("commission") ?: 0.0,
+                    time = o.lng("time") ?: 0L,
+                )
+            }
+        }
 
     // ------------------------------------------------------------ Emir işlemleri
 

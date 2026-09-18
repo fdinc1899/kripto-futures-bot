@@ -13,8 +13,8 @@ android {
         applicationId = "com.fatih.futuresbot"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = 8
+        versionName = "0.8.0"
         // GÜVENLİK: gerçek para modu derleme düzeyinde KAPALI (Aşama 15'te açılacak)
         buildConfigField("boolean", "REAL_TRADING_AVAILABLE", "false")
     }

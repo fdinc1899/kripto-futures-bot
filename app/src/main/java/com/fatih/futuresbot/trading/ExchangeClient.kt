@@ -5,6 +5,7 @@ import com.fatih.futuresbot.domain.model.Candle
 import com.fatih.futuresbot.domain.model.ConditionalOrderRequest
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
 import com.fatih.futuresbot.domain.model.ExchangeResult
+import com.fatih.futuresbot.domain.model.Fill
 import com.fatih.futuresbot.domain.model.FuturesBalance
 import com.fatih.futuresbot.domain.model.FuturesPosition
 import com.fatih.futuresbot.domain.model.MarkPriceInfo
@@ -33,6 +34,7 @@ interface ExchangeClient {
     suspend fun positions(): ExchangeResult<List<FuturesPosition>>
     suspend fun symbolConfig(symbol: String): ExchangeResult<SymbolConfig>
     suspend fun realizedPnlSince(startTimeMs: Long): ExchangeResult<Double>
+    suspend fun userTrades(symbol: String, startTimeMs: Long): ExchangeResult<List<Fill>>
 
     // ---- Emir işlemleri
     suspend fun symbolRules(symbol: String): ExchangeResult<SymbolRules>

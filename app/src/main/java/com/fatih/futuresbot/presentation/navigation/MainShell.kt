@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.presentation.bot.BotScreen
 import com.fatih.futuresbot.presentation.chart.ChartScreen
+import com.fatih.futuresbot.presentation.history.HistoryScreen
 import com.fatih.futuresbot.presentation.common.PlaceholderScreen
 import com.fatih.futuresbot.domain.model.PositionSide
 import com.fatih.futuresbot.presentation.dashboard.DashboardScreen
@@ -119,7 +120,7 @@ fun MainShell(container: AppContainer, onAddKeys: () -> Unit) {
                 Dest.POSITIONS -> PositionsScreen(container)
                 Dest.ORDERS -> OrdersScreen(container)
                 Dest.BOT -> BotScreen(container)
-                Dest.HISTORY -> PlaceholderScreen("History", "İşlem geçmişi Aşama 12'de gelecek")
+                Dest.HISTORY -> HistoryScreen(container)
                 Dest.SETTINGS -> SettingsScreen(container, onAddKeys = onAddKeys)
                 Dest.MORE -> MoreScreen(onOpen = { current = it })
             }
