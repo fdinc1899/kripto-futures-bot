@@ -14,13 +14,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fatih.futuresbot.app.AppContainer
+import com.fatih.futuresbot.domain.model.BotLogEntry
+import com.fatih.futuresbot.domain.model.BotLogLevel
+import com.fatih.futuresbot.domain.model.BotStatus
 import com.fatih.futuresbot.domain.model.ChartInterval
 import com.fatih.futuresbot.domain.model.SignalDirection
 import com.fatih.futuresbot.domain.model.StrategyConfig
@@ -125,6 +131,7 @@ fun BotScreen(container: AppContainer) {
     val state by vm.state.collectAsStateWithLifecycle()
     val config = state.config
     var draft by remember(config) { mutableStateOf(draftOf(config)) }
+    var askAuto by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
@@ -137,13 +144,24 @@ fun BotScreen(container: AppContainer) {
         ) {
             Text("Bot", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(
-                text = "Strateji ${state.symbol} üzerinde çalışır. Otomatik işlem açma Aşama 7'de " +
-                    "eklenecek; burada sinyal canlı olarak hesaplanır.",
+                text = "Bot ${state.symbol} paritesinde çalışır. Emirler yalnızca TESTNET'e gönderilir.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            ControlCard(
+                state = state,
+                onToggleBot = vm::setBotEnabled,
+                onAskAutoTrade = { askAuto = true },
+                onDisableAutoTrade = { vm.setAutoTrade(false) },
+                onSaveBot = { leverage, maxTrades ->
+                    vm.updateBot { it.copy(leverage = leverage, maxTradesPerDay = maxTrades) }
+                },
+            )
+
             SignalCard(state)
+
+            LogCard(logs = state.logs, onClear = vm::clearLogs)
 
             SectionCard {
                 Text("Zaman aralığı", fontWeight = FontWeight.Bold)
@@ -275,6 +293,145 @@ fun BotScreen(container: AppContainer) {
             ) { Text("Strateji ayarlarını kaydet") }
             state.saved?.let {
                 Text(it, color = TradeColors.Long, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+
+    if (askAuto) {
+        AlertDialog(
+            onDismissRequest = { askAuto = false },
+            title = { Text("Otomatik işlem açılsın mı?", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Bot, sinyal oluştuğunda TESTNET hesabında kendiliğinden emir gönderecek. " +
+                            "Her emir risk ayarlarına göre boyutlanır, Stop-Loss zorunludur ve " +
+                            "günlük zarar limiti dolunca bot kendini kapatır."
+                    )
+                    Text(
+                        "Emirler yalnızca uygulama açıkken gönderilir.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.setAutoTrade(true)
+                        askAuto = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TradeColors.Accent,
+                        contentColor = Color.Black,
+                    ),
+                ) { Text("Etkinleştir", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { askAuto = false }) { Text("Vazgeç") } },
+        )
+    }
+}
+
+@Composable
+private fun ControlCard(
+    state: BotUiState,
+    onToggleBot: (Boolean) -> Unit,
+    onAskAutoTrade: () -> Unit,
+    onDisableAutoTrade: () -> Unit,
+    onSaveBot: (Int, Int) -> Unit,
+) {
+    val bot = state.bot
+    var leverage by remember(bot.leverage) { mutableStateOf(bot.leverage.toString()) }
+    var maxTrades by remember(bot.maxTradesPerDay) { mutableStateOf(bot.maxTradesPerDay.toString()) }
+    val (statusText, statusColor) = when (state.status) {
+        BotStatus.ACTIVE -> "ACTIVE" to TradeColors.Long
+        BotStatus.WAITING_SIGNAL -> "WAITING SIGNAL" to TradeColors.Accent
+        BotStatus.POSITION_OPEN -> "POSITION OPEN" to TradeColors.Long
+        BotStatus.STOPPED -> "STOPPED" to TradeColors.Short
+    }
+
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("BOT", fontWeight = FontWeight.Bold)
+                Text(statusText, color = statusColor, fontWeight = FontWeight.Bold)
+            }
+            Switch(checked = bot.enabled, onCheckedChange = onToggleBot)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Otomatik işlem", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = if (bot.autoTrade) {
+                        "Sinyal oluşunca emir gönderilir"
+                    } else {
+                        "Yalnızca sinyal kaydedilir"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = bot.autoTrade,
+                onCheckedChange = { checked -> if (checked) onAskAutoTrade() else onDisableAutoTrade() },
+            )
+        }
+        FieldRow(
+            "Kaldıraç", leverage, { leverage = it },
+            "Günlük maks işlem", maxTrades, { maxTrades = it },
+        )
+        Button(
+            onClick = {
+                onSaveBot(
+                    leverage.toIntOrNull() ?: bot.leverage,
+                    maxTrades.toIntOrNull() ?: bot.maxTradesPerDay,
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Bot ayarlarını kaydet") }
+
+        StatRow("İşlem riski", "%" + num(state.risk.riskPerTradePercent))
+        StatRow("Varsayılan SL / TP", "%" + num(state.risk.defaultStopLossPercent) + " / %" + num(state.risk.defaultTakeProfitPercent))
+        StatRow("Günlük zarar limiti", "%" + num(state.risk.maxDailyLossPercent))
+        StatRow("Maks. açık pozisyon", state.risk.maxOpenPositions.toString())
+        Text(
+            text = "Bot her mumda en fazla bir işlem açar ve aynı paritede ikinci pozisyon açmaz.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun LogCard(logs: List<BotLogEntry>, onClear: () -> Unit) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Bot kaydı", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = onClear) { Text("Temizle") }
+        }
+        if (logs.isEmpty()) {
+            Text(
+                text = "Henüz kayıt yok.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            logs.take(20).forEach { entry ->
+                val color = when (entry.level) {
+                    BotLogLevel.OK -> TradeColors.Long
+                    BotLogLevel.WARN -> TradeColors.Accent
+                    BotLogLevel.ERROR -> TradeColors.Short
+                    BotLogLevel.INFO -> MaterialTheme.colorScheme.onSurface
+                }
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        text = TIME_FORMAT.format(Instant.ofEpochMilli(entry.time)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text(entry.text, style = MaterialTheme.typography.bodySmall, color = color)
+                }
             }
         }
     }

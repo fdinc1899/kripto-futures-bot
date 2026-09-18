@@ -16,6 +16,7 @@ import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.domain.repository.MarketRepository
+import com.fatih.futuresbot.trading.BotEngine
 import com.fatih.futuresbot.trading.OrderManager
 import com.fatih.futuresbot.trading.TradingGuard
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +45,7 @@ private data class ConnectionInfo(
     val stream: ConnectionState,
     val error: String?,
     val risk: RiskSettings,
+    val botStatus: BotStatus,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,6 +55,7 @@ class DashboardViewModel(
     modeStore: TradingModeStore,
     symbolStore: SelectedSymbolStore,
     riskStore: RiskSettingsStore,
+    botEngine: BotEngine,
     private val guard: TradingGuard,
     private val orderManager: OrderManager,
     private val appScope: CoroutineScope,
@@ -63,7 +66,10 @@ class DashboardViewModel(
         marketRepository.streamState,
         accountRepository.lastError,
         riskStore.settings,
-    ) { rest, stream, error, risk -> ConnectionInfo(rest, stream, error?.userMessage, risk) }
+        botEngine.status,
+    ) { rest, stream, error, risk, botStatus ->
+        ConnectionInfo(rest, stream, error?.userMessage, risk, botStatus)
+    }
 
     val state: StateFlow<DashboardUiState> = combine(
         modeStore.mode,
@@ -79,7 +85,7 @@ class DashboardViewModel(
             errorMessage = conn.error,
             account = account,
             symbol = symbol,
-            botStatus = BotStatus.STOPPED,
+            botStatus = conn.botStatus,
             emergencyStopped = emergencyStopped,
             risk = conn.risk,
         )
@@ -103,6 +109,7 @@ class DashboardViewModel(
                     modeStore = container.tradingModeStore,
                     symbolStore = container.selectedSymbolStore,
                     riskStore = container.riskSettingsStore,
+                    botEngine = container.botEngine,
                     guard = container.tradingGuard,
                     orderManager = container.orderManager,
                     appScope = container.appScope,

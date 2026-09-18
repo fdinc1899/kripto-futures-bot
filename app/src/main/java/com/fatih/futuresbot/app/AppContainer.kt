@@ -3,6 +3,7 @@ package com.fatih.futuresbot.app
 import android.content.Context
 import com.fatih.futuresbot.data.binance.BinanceAccountRepository
 import com.fatih.futuresbot.data.binance.BinanceMarketRepository
+import com.fatih.futuresbot.data.settings.BotSettingsStore
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.data.settings.SelectedSymbolStore
 import com.fatih.futuresbot.data.settings.StrategyStore
@@ -15,6 +16,7 @@ import com.fatih.futuresbot.network.binance.BinanceFuturesClient
 import com.fatih.futuresbot.network.binance.BinanceMarketStream
 import com.fatih.futuresbot.security.CredentialStore
 import com.fatih.futuresbot.trading.ConnectionTester
+import com.fatih.futuresbot.trading.BotEngine
 import com.fatih.futuresbot.trading.ExchangeClient
 import com.fatih.futuresbot.trading.OrderManager
 import com.fatih.futuresbot.trading.ProtectionPlanStore
@@ -34,6 +36,7 @@ class AppContainer(context: Context) {
     val selectedSymbolStore = SelectedSymbolStore(appContext)
     val riskSettingsStore = RiskSettingsStore(appContext)
     val strategyStore = StrategyStore(appContext)
+    val botSettingsStore = BotSettingsStore(appContext)
 
     private val httpClient = HttpClientFactory.create()
 
@@ -66,4 +69,17 @@ class AppContainer(context: Context) {
         planStore = ProtectionPlanStore(appContext),
         riskStore = riskSettingsStore,
     ).also { it.startProtectionWatcher(appScope, credentialStore.hasCredentials) }
+
+    val botEngine = BotEngine(
+        botSettingsStore = botSettingsStore,
+        strategyStore = strategyStore,
+        riskStore = riskSettingsStore,
+        symbolStore = selectedSymbolStore,
+        marketRepository = marketRepository,
+        accountRepository = accountRepository,
+        orderManager = orderManager,
+        guard = tradingGuard,
+        client = exchangeClient,
+        scope = appScope,
+    ).also { it.start() }
 }
