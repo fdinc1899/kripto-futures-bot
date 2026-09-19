@@ -10,11 +10,13 @@ import com.fatih.futuresbot.domain.model.NewOrderRequest
 import com.fatih.futuresbot.domain.model.OrderInfo
 import com.fatih.futuresbot.domain.model.OrderType
 import com.fatih.futuresbot.domain.model.PositionSide
+import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.model.TradeOrigin
 import com.fatih.futuresbot.domain.model.TradeRecord
 import com.fatih.futuresbot.domain.model.TradeStatus
 import com.fatih.futuresbot.data.history.TradeHistoryStore
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
+import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.domain.model.SizingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
@@ -119,6 +121,7 @@ class OrderManager(
     private val riskStore: RiskSettingsStore,
     private val historyStore: TradeHistoryStore,
     private val notifier: Notifier,
+    private val modeStore: TradingModeStore,
 ) {
     private val mutex = Mutex()
     @Volatile private var lastSubmitKey: String? = null
@@ -706,8 +709,19 @@ class OrderManager(
 
     private fun commonBlockers(): List<String> {
         val out = mutableListOf<String>()
-        if (client.environment != ExchangeEnvironment.TESTNET && !BuildConfig.REAL_TRADING_AVAILABLE) {
-            out.add("Gerçek işlem modu kapalı.")
+        if (client.environment == ExchangeEnvironment.REAL && !BuildConfig.REAL_TRADING_AVAILABLE) {
+            out.add("Gerçek işlem modu bu sürümde kapalı.")
+        }
+        if (modeStore.restartRequired()) {
+            out.add("İşlem modu değişti — uygulamayı kapatıp yeniden aç.")
+        }
+        val expected = if (modeStore.sessionMode == TradingMode.REAL) {
+            ExchangeEnvironment.REAL
+        } else {
+            ExchangeEnvironment.TESTNET
+        }
+        if (client.environment != expected) {
+            out.add("Borsa adresi ile işlem modu uyuşmuyor — uygulamayı yeniden başlat.")
         }
         if (guard.emergencyStopped.value) {
             out.add("Acil durdurma aktif — önce Dashboard'dan sıfırla.")

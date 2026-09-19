@@ -48,6 +48,9 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
     val riskSaved by vm.riskSaved.collectAsStateWithLifecycle()
     val notificationsEnabled by vm.notificationsEnabled.collectAsStateWithLifecycle()
     val notificationMessage by vm.notificationMessage.collectAsStateWithLifecycle()
+    val realStep by vm.realStep.collectAsStateWithLifecycle()
+    val realConfirmText by vm.realConfirmText.collectAsStateWithLifecycle()
+    val modeMessage by vm.modeMessage.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -208,12 +211,21 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text("GERÇEK İŞLEMLERİ ETKİNLEŞTİR", fontWeight = FontWeight.Bold)
                     Text(
-                        text = "Son aşamada, ikinci onay ekranıyla açılacak.",
+                        text = "Açıldığında emirler gerçek paranla gönderilir. Mod değişince " +
+                            "kayıtlı API anahtarı silinir ve uygulamanın yeniden başlatılması gerekir.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(checked = false, onCheckedChange = null, enabled = false)
+                Switch(
+                    checked = mode == TradingMode.REAL,
+                    onCheckedChange = { checked ->
+                        if (checked) vm.startRealModeFlow() else vm.switchToTestnet()
+                    },
+                )
+            }
+            modeMessage?.let {
+                Text(it, color = TradeColors.Short, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -224,6 +236,67 @@ fun SettingsScreen(container: AppContainer, onAddKeys: () -> Unit) {
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TradeColors.Short),
             ) { Text("API anahtarlarını sil") }
         }
+    }
+
+    if (realStep == 1) {
+        AlertDialog(
+            onDismissRequest = vm::cancelRealModeFlow,
+            title = { Text("Gerçek para modu", fontWeight = FontWeight.Bold, color = TradeColors.Short) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Bu mod açıldığında:")
+                    Text("• Emirler gerçek paranla ve gerçek borsada gönderilir.")
+                    Text("• Kaldıraçlı işlemde yatırdığın tutarın tamamını kaybedebilirsin.")
+                    Text("• Kayıtlı demo API anahtarı silinir; gerçek hesabın anahtarını girmen gerekir.")
+                    Text("• API anahtarında para çekme iznini ASLA açma.")
+                    Text(
+                        "Devam etmeden önce testnet'te tüm testleri tamamladığından emin ol.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = vm::continueRealModeFlow,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TradeColors.Short,
+                        contentColor = androidx.compose.ui.graphics.Color.White,
+                    ),
+                ) { Text("Anladım, devam et", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelRealModeFlow) { Text("Vazgeç") } },
+        )
+    }
+
+    if (realStep == 2) {
+        AlertDialog(
+            onDismissRequest = vm::cancelRealModeFlow,
+            title = { Text("Son onay", fontWeight = FontWeight.Bold, color = TradeColors.Short) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Onaylamak için aşağıya ${SettingsViewModel.CONFIRM_WORD} yaz.")
+                    OutlinedTextField(
+                        value = realConfirmText,
+                        onValueChange = vm::setRealConfirmText,
+                        singleLine = true,
+                        label = { Text(SettingsViewModel.CONFIRM_WORD) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = vm::confirmRealMode,
+                    enabled = realConfirmText.trim() == SettingsViewModel.CONFIRM_WORD,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TradeColors.Short,
+                        contentColor = androidx.compose.ui.graphics.Color.White,
+                    ),
+                ) { Text("Gerçek modu aç", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelRealModeFlow) { Text("Vazgeç") } },
+        )
     }
 
     if (confirmDelete) {

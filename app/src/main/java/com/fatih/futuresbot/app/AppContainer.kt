@@ -11,6 +11,7 @@ import com.fatih.futuresbot.data.settings.SelectedSymbolStore
 import com.fatih.futuresbot.data.settings.StrategyStore
 import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.ExchangeEnvironment
+import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.domain.repository.MarketRepository
 import com.fatih.futuresbot.network.HttpClientFactory
@@ -48,14 +49,25 @@ class AppContainer(context: Context) {
 
     private val httpClient = HttpClientFactory.create()
 
-    // GÜVENLİK: Ortam sabit TESTNET (Binance Demo). Gerçek ortam Aşama 15'te eklenecek.
+    /**
+     * GÜVENLİK: Borsa adresi uygulama açılışında seçilir ve oturum boyunca değişmez.
+     * Varsayılan TESTNET; gerçek moda geçiş Settings'te iki adımlı onay ister ve
+     * uygulamanın yeniden başlatılmasını gerektirir.
+     */
+    val environment: ExchangeEnvironment =
+        if (tradingModeStore.sessionMode == TradingMode.REAL) {
+            ExchangeEnvironment.REAL
+        } else {
+            ExchangeEnvironment.TESTNET
+        }
+
     val exchangeClient: ExchangeClient = BinanceFuturesClient(
-        environment = ExchangeEnvironment.TESTNET,
+        environment = environment,
         http = httpClient,
         credentialsProvider = { credentialStore.load() },
     )
 
-    private val marketStream = BinanceMarketStream(httpClient, ExchangeEnvironment.TESTNET)
+    private val marketStream = BinanceMarketStream(httpClient, environment)
 
     val marketRepository: MarketRepository = BinanceMarketRepository(exchangeClient, marketStream)
 
@@ -77,6 +89,7 @@ class AppContainer(context: Context) {
         planStore = ProtectionPlanStore(appContext),
         riskStore = riskSettingsStore,
         historyStore = tradeHistoryStore,
+        modeStore = tradingModeStore,
         notifier = notifier,
     ).also { it.startProtectionWatcher(appScope, credentialStore.hasCredentials) }
 

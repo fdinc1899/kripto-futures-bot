@@ -7,6 +7,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.data.settings.NotificationSettingsStore
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
+import com.fatih.futuresbot.data.settings.TradingModeStore
+import com.fatih.futuresbot.domain.model.TradingMode
+import com.fatih.futuresbot.security.CredentialStore
 import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.trading.ConnectionTestStep
 import com.fatih.futuresbot.notifications.Notifier
@@ -49,7 +52,63 @@ class SettingsViewModel(
     private val riskStore: RiskSettingsStore,
     private val notificationStore: NotificationSettingsStore,
     private val notifier: Notifier,
+    private val modeStore: TradingModeStore,
+    private val credentialStore: CredentialStore,
 ) : ViewModel() {
+
+    /** 0: kapalı, 1: uyarı, 2: yazarak onay */
+    private val _realStep = MutableStateFlow(0)
+    val realStep: StateFlow<Int> = _realStep.asStateFlow()
+
+    private val _realConfirmText = MutableStateFlow("")
+    val realConfirmText: StateFlow<String> = _realConfirmText.asStateFlow()
+
+    private val _modeMessage = MutableStateFlow<String?>(null)
+    val modeMessage: StateFlow<String?> = _modeMessage.asStateFlow()
+
+    fun startRealModeFlow() {
+        _realConfirmText.value = ""
+        _realStep.value = 1
+    }
+
+    fun continueRealModeFlow() {
+        _realStep.value = 2
+    }
+
+    fun cancelRealModeFlow() {
+        _realStep.value = 0
+        _realConfirmText.value = ""
+    }
+
+    fun setRealConfirmText(value: String) {
+        _realConfirmText.value = value.uppercase().take(10)
+    }
+
+    /** İkinci onay: "GERÇEK" yazılmadan etkinleşmez. */
+    fun confirmRealMode() {
+        if (_realConfirmText.value.trim() != CONFIRM_WORD) {
+            _modeMessage.value = "Onay için $CONFIRM_WORD yazmalısın"
+            return
+        }
+        val applied = modeStore.setMode(TradingMode.REAL)
+        if (!applied) {
+            _modeMessage.value = "Gerçek mod bu sürümde kapalı"
+            cancelRealModeFlow()
+            return
+        }
+        // Testnet anahtarlarıyla gerçek borsaya bağlanılmasın
+        credentialStore.clear()
+        cancelRealModeFlow()
+        _modeMessage.value = "GERÇEK moda geçildi. Uygulamayı kapatıp yeniden aç ve " +
+            "gerçek hesabın API anahtarını gir."
+    }
+
+    fun switchToTestnet() {
+        modeStore.setMode(TradingMode.TESTNET)
+        credentialStore.clear()
+        _modeMessage.value = "TESTNET moduna geçildi. Uygulamayı kapatıp yeniden aç ve " +
+            "demo API anahtarını gir."
+    }
 
     val notificationsEnabled: StateFlow<Boolean> = notificationStore.enabled
 
@@ -125,6 +184,8 @@ class SettingsViewModel(
     }
 
     companion object {
+        const val CONFIRM_WORD = "GERÇEK"
+
         fun factory(container: AppContainer) = viewModelFactory {
             initializer {
                 SettingsViewModel(
@@ -133,6 +194,8 @@ class SettingsViewModel(
                     riskStore = container.riskSettingsStore,
                     notificationStore = container.notificationSettingsStore,
                     notifier = container.notifier,
+                    modeStore = container.tradingModeStore,
+                    credentialStore = container.credentialStore,
                 )
             }
         }

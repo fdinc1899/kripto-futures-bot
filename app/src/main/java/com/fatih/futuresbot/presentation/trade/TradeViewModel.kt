@@ -7,12 +7,14 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.data.settings.RiskSettingsStore
 import com.fatih.futuresbot.data.settings.SelectedSymbolStore
+import com.fatih.futuresbot.data.settings.TradingModeStore
 import com.fatih.futuresbot.domain.model.AccountSummary
 import com.fatih.futuresbot.domain.model.ConnectionState
 import com.fatih.futuresbot.domain.model.OrderType
 import com.fatih.futuresbot.domain.model.PositionSide
 import com.fatih.futuresbot.domain.model.RiskSettings
 import com.fatih.futuresbot.domain.model.SizingMode
+import com.fatih.futuresbot.domain.model.TradingMode
 import com.fatih.futuresbot.domain.model.SymbolSnapshot
 import com.fatih.futuresbot.domain.repository.AccountRepository
 import com.fatih.futuresbot.trading.ActionResult
@@ -72,6 +74,7 @@ data class TradeUiState(
     val emergencyStopped: Boolean = false,
     val risk: RiskSettings = RiskSettings(),
     val walletBalance: Double? = null,
+    val mode: TradingMode = TradingMode.TESTNET,
 )
 
 private data class MarketInfo(
@@ -86,6 +89,7 @@ class TradeViewModel(
     private val symbolStore: SelectedSymbolStore,
     guard: TradingGuard,
     riskStore: RiskSettingsStore,
+    private val modeStore: TradingModeStore,
 ) : ViewModel() {
 
     private val form = MutableStateFlow(defaultForm(riskStore.settings.value))
@@ -114,6 +118,7 @@ class TradeViewModel(
             emergencyStopped = guardAndRisk.first,
             risk = guardAndRisk.second,
             walletBalance = info.account?.walletBalance,
+            mode = modeStore.sessionMode,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TradeUiState())
 
@@ -219,6 +224,7 @@ class TradeViewModel(
                     symbolStore = container.selectedSymbolStore,
                     guard = container.tradingGuard,
                     riskStore = container.riskSettingsStore,
+                    modeStore = container.tradingModeStore,
                 )
             }
         }

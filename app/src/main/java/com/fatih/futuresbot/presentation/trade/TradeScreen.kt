@@ -89,7 +89,7 @@ fun TradeScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose, enabled = !ops.busy) { Text("‹ Geri") }
                 Spacer(Modifier.weight(1f))
-                ModeBadge(TradingMode.TESTNET)
+                ModeBadge(state.mode)
             }
             Text(
                 text = "${state.symbol} emri",
@@ -223,6 +223,7 @@ fun TradeScreen(
     ops.preview?.let { preview ->
         ConfirmOrderDialog(
             preview = preview,
+            real = state.mode == TradingMode.REAL,
             busy = ops.busy,
             onConfirm = vm::confirmSubmit,
             onDismiss = vm::dismissPreview,
@@ -286,6 +287,7 @@ private fun SegmentRow(
 @Composable
 private fun ConfirmOrderDialog(
     preview: OrderPreview,
+    real: Boolean,
     busy: Boolean,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -303,7 +305,18 @@ private fun ConfirmOrderDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                StatRow("Mod", "TESTNET / DEMO", TradeColors.Accent)
+                StatRow(
+                    "Mod",
+                    if (real) "GERÇEK PARA" else "TESTNET / DEMO",
+                    if (real) TradeColors.Short else TradeColors.Accent,
+                )
+                if (real) {
+                    Text(
+                        text = "DİKKAT: Bu emir gerçek paranla gönderilecek.",
+                        color = TradeColors.Short,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
                 StatRow("Coin", intent.symbol)
                 StatRow("Yön", if (isLong) "LONG" else "SHORT", sideColor)
                 StatRow("Emir tipi", if (isMarket) "Market" else "Limit")
