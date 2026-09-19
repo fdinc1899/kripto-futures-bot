@@ -13,6 +13,7 @@ import com.fatih.futuresbot.domain.model.BotLogEntry
 import com.fatih.futuresbot.domain.model.BotSettings
 import com.fatih.futuresbot.domain.model.BotStatus
 import com.fatih.futuresbot.domain.model.RiskSettings
+import com.fatih.futuresbot.domain.model.ScanCandidate
 import com.fatih.futuresbot.domain.model.ChartInterval
 import com.fatih.futuresbot.domain.model.StrategyConfig
 import com.fatih.futuresbot.domain.model.StrategySignal
@@ -41,6 +42,7 @@ data class BotUiState(
     val bot: BotSettings = BotSettings(),
     val risk: RiskSettings = RiskSettings(),
     val logs: List<BotLogEntry> = emptyList(),
+    val scan: List<ScanCandidate> = emptyList(),
 )
 
 private data class BotRuntime(
@@ -48,6 +50,7 @@ private data class BotRuntime(
     val status: BotStatus,
     val logs: List<BotLogEntry>,
     val risk: RiskSettings,
+    val scan: List<ScanCandidate>,
 )
 
 private data class SignalState(
@@ -71,7 +74,8 @@ class BotViewModel(
         botEngine.status,
         botEngine.logs,
         riskStore.settings,
-    ) { settings, status, logs, risk -> BotRuntime(settings, status, logs, risk) }
+        botEngine.scanResults,
+    ) { settings, status, logs, risk, scan -> BotRuntime(settings, status, logs, risk, scan) }
 
     private val saved = MutableStateFlow<String?>(null)
 
@@ -111,6 +115,7 @@ class BotViewModel(
             bot = run.settings,
             risk = run.risk,
             logs = run.logs,
+            scan = run.scan,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BotUiState())
 

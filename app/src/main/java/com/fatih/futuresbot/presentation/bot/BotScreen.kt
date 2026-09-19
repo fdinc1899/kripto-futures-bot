@@ -43,6 +43,8 @@ import com.fatih.futuresbot.domain.model.BotLogEntry
 import com.fatih.futuresbot.domain.model.BotLogLevel
 import com.fatih.futuresbot.domain.model.BotStatus
 import com.fatih.futuresbot.domain.model.ChartInterval
+import com.fatih.futuresbot.domain.model.ScanCandidate
+import com.fatih.futuresbot.domain.model.ScanMode
 import com.fatih.futuresbot.domain.model.SignalDirection
 import com.fatih.futuresbot.domain.model.StrategyConfig
 import com.fatih.futuresbot.presentation.common.Fmt
@@ -144,7 +146,8 @@ fun BotScreen(container: AppContainer) {
         ) {
             Text("Bot", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(
-                text = "Bot ${state.symbol} paritesinde çalışır. Emirler yalnızca TESTNET'e gönderilir.",
+                text = "Bot, taranan paritelerde çalışır. Aşağıdaki sinyal kartı seçili pariteyi " +
+                    "(${state.symbol}) canlı gösterir.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -156,6 +159,20 @@ fun BotScreen(container: AppContainer) {
                 onDisableAutoTrade = { vm.setAutoTrade(false) },
                 onSaveBot = { leverage, maxTrades ->
                     vm.updateBot { it.copy(leverage = leverage, maxTradesPerDay = maxTrades) }
+                },
+            )
+
+            ScanCard(
+                state = state,
+                onSaveScan = { mode, count, watchlist, allowShort ->
+                    vm.updateBot {
+                        it.copy(
+                            scanMode = mode.name,
+                            scanCount = count,
+                            watchlist = watchlist,
+                            allowShort = allowShort,
+                        )
+                    }
                 },
             )
 
@@ -400,6 +417,113 @@ private fun ControlCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun ScanCard(
+    state: BotUiState,
+    onSaveScan: (ScanMode, Int, String, Boolean) -> Unit,
+) {
+    val bot = state.bot
+    val currentMode = ScanMode.entries.firstOrNull { it.name == bot.scanMode } ?: ScanMode.HYBRID
+    var scanCount by remember(bot.scanCount) { mutableStateOf(bot.scanCount.toString()) }
+    var watchlist by remember(bot.watchlist) { mutableStateOf(bot.watchlist) }
+
+    SectionCard {
+        Text("Parite taraması", fontWeight = FontWeight.Bold)
+        Text(
+            text = "Hacim havuzundan momentum ve hacim sıçramasına göre en hareketli pariteler " +
+                "seçilir; liste 5 dakikada bir yenilenir.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            ScanMode.entries.forEach { mode ->
+                Chip(
+                    label = modeLabel(mode),
+                    selected = mode == currentMode,
+                    onClick = { onSaveScan(mode, scanCount.toIntOrNull() ?: bot.scanCount, watchlist, bot.allowShort) },
+                )
+            }
+        }
+        FieldRow(
+            "Taranacak parite", scanCount, { scanCount = it },
+            null, "", {},
+        )
+        OutlinedTextField(
+            value = watchlist,
+            onValueChange = { watchlist = it.uppercase() },
+            label = { Text("Kendi listem (virgülle)", style = MaterialTheme.typography.bodySmall) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("SHORT işlemleri", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = if (bot.allowShort) "LONG ve SHORT açılır" else "Yalnızca LONG açılır",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = bot.allowShort,
+                onCheckedChange = { checked ->
+                    onSaveScan(currentMode, scanCount.toIntOrNull() ?: bot.scanCount, watchlist, checked)
+                },
+            )
+        }
+        Button(
+            onClick = {
+                onSaveScan(currentMode, scanCount.toIntOrNull() ?: bot.scanCount, watchlist, bot.allowShort)
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Tarama ayarlarını kaydet") }
+
+        if (state.scan.isEmpty()) {
+            Text(
+                text = "Tarama sonucu yok. Bot açıkken liste birkaç saniye içinde dolar.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Text("Taranan pariteler (${state.scan.size})", fontWeight = FontWeight.SemiBold)
+            state.scan.take(15).forEach { candidate -> ScanRow(candidate) }
+        }
+    }
+}
+
+@Composable
+private fun ScanRow(candidate: ScanCandidate) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = candidate.symbol.removeSuffix("USDT") + if (candidate.fromWatchlist) " ★" else "",
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (candidate.fromWatchlist) {
+                "listemden"
+            } else {
+                "24s %" + num(candidate.changePercent) +
+                    " · 1s %" + num(candidate.momentumPercent) +
+                    " · hacim ×" + num(candidate.volumeSpike)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (candidate.momentumPercent >= 0.0) TradeColors.Long else TradeColors.Short,
+        )
+    }
+}
+
+private fun modeLabel(mode: ScanMode): String = when (mode) {
+    ScanMode.TOP_VOLUME -> "Hacim"
+    ScanMode.MOMENTUM -> "Momentum"
+    ScanMode.WATCHLIST -> "Listem"
+    ScanMode.HYBRID -> "Karma"
 }
 
 @Composable

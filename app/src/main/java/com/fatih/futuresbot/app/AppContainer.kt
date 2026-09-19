@@ -23,6 +23,7 @@ import com.fatih.futuresbot.trading.BotEngine
 import com.fatih.futuresbot.trading.ExchangeClient
 import com.fatih.futuresbot.notifications.Notifier
 import com.fatih.futuresbot.trading.HistorySync
+import com.fatih.futuresbot.trading.MarketScanner
 import com.fatih.futuresbot.trading.TradeMonitor
 import com.fatih.futuresbot.trading.OrderManager
 import com.fatih.futuresbot.trading.ProtectionPlanStore
@@ -103,12 +104,14 @@ class AppContainer(context: Context) {
         scope = appScope,
     ).also { it.start() }
 
+    val marketScanner = MarketScanner(exchangeClient)
+
     val botEngine = BotEngine(
         botSettingsStore = botSettingsStore,
         strategyStore = strategyStore,
         riskStore = riskSettingsStore,
         symbolStore = selectedSymbolStore,
-        marketRepository = marketRepository,
+        scanner = marketScanner,
         accountRepository = accountRepository,
         orderManager = orderManager,
         guard = tradingGuard,

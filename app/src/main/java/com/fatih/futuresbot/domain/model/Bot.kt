@@ -6,6 +6,17 @@ data class BotSettings(
     val autoTrade: Boolean = false,
     val leverage: Int = 5,
     val maxTradesPerDay: Int = 10,
+    /** Hangi pariteler taranacak */
+    val scanMode: String = ScanMode.HYBRID.name,
+    /** Hacim havuzu büyüklüğü */
+    val poolSize: Int = 25,
+    /** Havuzdan kaç parite taranacak */
+    val scanCount: Int = 12,
+    /** Havuza girmek için en az 24 saatlik hacim (USDT) */
+    val minQuoteVolume: Double = 0.0,
+    /** Her zaman taranacak pariteler, virgülle ayrılmış */
+    val watchlist: String = "BTCUSDT,ETHUSDT,SOLUSDT",
+    val allowShort: Boolean = true,
 )
 
 enum class BotLogLevel { INFO, OK, WARN, ERROR }
