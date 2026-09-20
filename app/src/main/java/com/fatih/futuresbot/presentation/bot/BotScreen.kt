@@ -32,12 +32,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.content.Intent
+import android.provider.Settings
 import com.fatih.futuresbot.app.AppContainer
 import com.fatih.futuresbot.domain.model.BotLogEntry
 import com.fatih.futuresbot.domain.model.BotLogLevel
@@ -161,6 +164,8 @@ fun BotScreen(container: AppContainer) {
                     vm.updateBot { it.copy(leverage = leverage, maxTradesPerDay = maxTrades) }
                 },
             )
+
+            BackgroundCard()
 
             ScanCard(
                 state = state,
@@ -493,6 +498,37 @@ private fun ScanCard(
             Text("Taranan pariteler (${state.scan.size})", fontWeight = FontWeight.SemiBold)
             state.scan.take(15).forEach { candidate -> ScanRow(candidate) }
         }
+    }
+}
+
+@Composable
+private fun BackgroundCard() {
+    val context = LocalContext.current
+    SectionCard {
+        Text("Arka planda çalışma", fontWeight = FontWeight.Bold)
+        Text(
+            text = "Bot açıkken kalıcı bir bildirim görünür; uygulama kapalıyken bile tarama " +
+                "ve emirler sürer. Bildirimi kapatırsan bot durur.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "Telefon botu uykuya almasın diye pil optimizasyonundan muaf tut ve " +
+                "uygulamayı son uygulamalar ekranında kilitle.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Pil optimizasyonu ayarlarını aç") }
     }
 }
 
