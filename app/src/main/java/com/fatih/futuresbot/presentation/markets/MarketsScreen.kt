@@ -113,12 +113,19 @@ fun MarketsScreen(container: AppContainer, onSymbolSelected: () -> Unit) {
                     label = { Text(w.label) },
                 )
             }
-            if (state.windowRefreshing && state.items.isNotEmpty()) {
+            if (state.windowRefreshing) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                if (state.windowTotal > 0) {
+                    Text(
+                        text = "${state.windowDone}/${state.windowTotal}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
-        state.error?.let {
+        (state.error ?: state.windowError)?.let {
             Text(
                 text = it,
                 color = TradeColors.Accent,
@@ -138,6 +145,17 @@ fun MarketsScreen(container: AppContainer, onSymbolSelected: () -> Unit) {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+            state.items.isEmpty() && state.windowRefreshing ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Mum verisi alınıyor ${state.windowDone}/${state.windowTotal}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             state.items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Sonuç yok", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

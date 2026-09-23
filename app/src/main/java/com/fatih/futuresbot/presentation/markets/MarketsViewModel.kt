@@ -27,8 +27,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class SortMode(val label: String, val subtitle: String) {
     VOLUME("Hacim", "hacme göre sıralı"),
@@ -57,6 +56,9 @@ data class MarketsUiState(
     val sort: SortMode = SortMode.VOLUME,
     val window: ChangeWindow = ChangeWindow.D1,
     val windowRefreshing: Boolean = false,
+    val windowDone: Int = 0,
+    val windowTotal: Int = 0,
+    val windowError: String? = null,
     val windowLimit: Int = WINDOW_SYMBOLS,
 )
 
@@ -78,7 +80,15 @@ private data class WindowChanges(
     val window: ChangeWindow,
     val changes: Map<String, Double>,
     val refreshing: Boolean,
+    val done: Int = 0,
+    val total: Int = 0,
+    val error: String? = null,
 )
+
+private sealed interface ChangeResult {
+    data class Ok(val symbol: String, val pct: Double) : ChangeResult
+    data class Fail(val message: String) : ChangeResult
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MarketsViewModel(
@@ -125,9 +135,30 @@ class MarketsViewModel(
                             delay(1_000)
                             continue
                         }
-                        emit(WindowChanges(w, changes, true))
-                        changes = computeChanges(symbols, w)
-                        emit(WindowChanges(w, changes, false))
+                        // Eski değerler yenilenirken ekranda kalır; sonuçlar parça parça gelir
+                        val fresh = HashMap(changes)
+                        var done = 0
+                        var lastError: String? = null
+                        var okCount = 0
+                        for (chunk in symbols.chunked(CHUNK)) {
+                            val part = coroutineScope {
+                                chunk.map { symbol -> async { fetchChange(symbol, w) } }.awaitAll()
+                            }
+                            part.forEach { res ->
+                                when (res) {
+                                    is ChangeResult.Ok -> {
+                                        fresh[res.symbol] = res.pct
+                                        okCount++
+                                    }
+                                    is ChangeResult.Fail -> lastError = res.message
+                                }
+                            }
+                            done += chunk.size
+                            changes = fresh.toMap()
+                            emit(WindowChanges(w, changes, true, done, symbols.size))
+                        }
+                        val error = if (okCount == 0) (lastError ?: "Mum verisi alınamadı") else null
+                        emit(WindowChanges(w, changes, false, done, symbols.size, error))
                         delay(WINDOW_REFRESH_MS)
                     }
                 }
@@ -168,11 +199,14 @@ class MarketsViewModel(
             query = q,
             items = sorted.take(MAX_ROWS),
             selected = selected,
-            loading = list.loading || (windowed && changes.isEmpty() && wc.refreshing),
+            loading = list.loading,
             error = list.error,
             sort = s.sort,
             window = s.window,
             windowRefreshing = windowed && wc.refreshing,
+            windowDone = if (windowed) wc.done else 0,
+            windowTotal = if (windowed) wc.total else 0,
+            windowError = if (windowed) wc.error else null,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MarketsUiState())
 
@@ -192,33 +226,30 @@ class MarketsViewModel(
         symbolStore.select(symbol)
     }
 
-    /** Aynı anda en fazla [PARALLEL] istek; hata veren parite atlanır. */
-    private suspend fun computeChanges(symbols: List<String>, w: ChangeWindow): Map<String, Double> {
-        val interval = w.interval ?: return emptyMap()
-        val gate = Semaphore(PARALLEL)
-        return coroutineScope {
-            symbols.map { symbol ->
-                async {
-                    gate.withPermit {
-                        val r = market.recentCandles(symbol, interval, w.bars + 1)
-                        if (r is ExchangeResult.Ok && r.value.size > w.bars) {
-                            val candles = r.value
-                            val ref = candles[candles.size - 1 - w.bars].close
-                            val now = candles.last().close
-                            if (ref > 0.0) symbol to (now / ref - 1.0) * 100.0 else null
-                        } else {
-                            null
-                        }
-                    }
-                }
-            }.awaitAll().filterNotNull().toMap()
+    /** Tek parite için pencere değişimi; takılan istek [REQUEST_TIMEOUT_MS] sonra atlanır. */
+    private suspend fun fetchChange(symbol: String, w: ChangeWindow): ChangeResult {
+        val interval = w.interval ?: return ChangeResult.Fail("Geçersiz pencere")
+        val r = withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
+            market.recentCandles(symbol, interval, w.bars + 1)
+        } ?: return ChangeResult.Fail("Borsa yanıt vermedi (zaman aşımı)")
+        return when (r) {
+            is ExchangeResult.Err -> ChangeResult.Fail(r.error.userMessage)
+            is ExchangeResult.Ok -> {
+                val candles = r.value
+                if (candles.size <= w.bars) return ChangeResult.Fail("Yetersiz mum verisi")
+                val ref = candles[candles.size - 1 - w.bars].close
+                val now = candles.last().close
+                if (ref > 0.0) ChangeResult.Ok(symbol, (now / ref - 1.0) * 100.0)
+                else ChangeResult.Fail("Geçersiz fiyat")
+            }
         }
     }
 
     companion object {
         private const val REFRESH_MS = 15_000L
         private const val WINDOW_REFRESH_MS = 60_000L
-        private const val PARALLEL = 6
+        private const val CHUNK = 10
+        private const val REQUEST_TIMEOUT_MS = 8_000L
         private const val MAX_ROWS = 200
 
         fun factory(container: AppContainer) = viewModelFactory {
