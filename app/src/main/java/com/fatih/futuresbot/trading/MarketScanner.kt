@@ -55,7 +55,7 @@ class MarketScanner(private val client: ExchangeClient) {
             )
         }
         return ExchangeResult.Ok(
-            candidates.sortedByDescending { it.score }.take(count.coerceIn(1, 30))
+            candidates.sortedByDescending { it.score }.take(count.coerceIn(1, 50))
         )
     }
 
@@ -65,6 +65,6 @@ class MarketScanner(private val client: ExchangeClient) {
 
     private companion object {
         const val SCAN_INTERVAL = "5m"
-        const val SCAN_LIMIT = 30
+        const val SCAN_LIMIT = 50
     }
 }

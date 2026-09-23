@@ -40,7 +40,7 @@ class BotSettingsStore(context: Context) {
             maxTradesPerDay = value.maxTradesPerDay.coerceIn(1, 100),
             scanMode = mode.name,
             poolSize = value.poolSize.coerceIn(5, 60),
-            scanCount = value.scanCount.coerceIn(1, 30),
+            scanCount = value.scanCount.coerceIn(1, 50),
             minQuoteVolume = value.minQuoteVolume.coerceAtLeast(0.0),
             watchlist = value.watchlist.uppercase().filter { it.isLetterOrDigit() || it == ',' }.take(200),
             allowShort = value.allowShort,
