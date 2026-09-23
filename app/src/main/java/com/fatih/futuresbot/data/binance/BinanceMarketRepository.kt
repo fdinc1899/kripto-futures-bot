@@ -109,6 +109,12 @@ class BinanceMarketRepository(
         }
     }
 
+    override suspend fun recentCandles(
+        symbol: String,
+        interval: ChartInterval,
+        limit: Int,
+    ): ExchangeResult<List<Candle>> = client.klines(symbol, interval.code, limit)
+
     override suspend fun allUsdtTickers(): ExchangeResult<List<Ticker24h>> =
         when (val r = client.allTickers()) {
             is ExchangeResult.Ok -> ExchangeResult.Ok(
